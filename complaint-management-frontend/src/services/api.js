@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE = 'http://152.67.3.122:8080';
+const API_BASE = 'https://labs-now-kyle-ours.trycloudflare.com';
 
 const api = axios.create({
   baseURL: API_BASE + '/api',
