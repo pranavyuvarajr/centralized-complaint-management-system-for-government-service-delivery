@@ -104,3 +104,56 @@ docker-compose.override.yml
 # ------------------------------------------------------------
 dist/
 build/
+
+
+# =========================
+# Node / React / Vite
+# =========================
+node_modules/
+dist/
+.vite/
+coverage/
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# =========================
+# Java / Spring Boot / Maven
+# =========================
+target/
+*.class
+*.jar
+*.war
+*.log
+
+# =========================
+# IDE
+# =========================
+.idea/
+*.iml
+.vscode/
+
+# =========================
+# Environment / secrets
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
+# OS
+# =========================
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# =========================
+# Temporary
+# =========================
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
