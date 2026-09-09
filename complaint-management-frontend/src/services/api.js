@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE = 'https://labs-now-kyle-ours.trycloudflare.com';
+const API_BASE = 'https://instead-desktop-departmental-reservations.trycloudflare.com';
 
 const api = axios.create({
   baseURL: API_BASE + '/api',
