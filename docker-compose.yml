@@ -1,0 +1,55 @@
+# One-command local stack: Postgres + Spring Boot backend + React frontend.
+# Usage: docker compose up --build
+# Frontend: http://localhost:5173   Backend: http://localhost:8080
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: complaint_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - complaint_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./complaint-management-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: jdbc:postgresql://db:5432/complaint_db
+      DATABASE_USERNAME: postgres
+      DATABASE_PASSWORD: postgres
+      JWT_SECRET: LocalDevOnlySecretKeyChangeThisInProduction1234567890
+      CORS_ORIGINS: http://localhost:5173
+      PORT: 8080
+    ports:
+      - "8080:8080"
+    volumes:
+      - complaint_uploads:/app/uploads
+
+  frontend:
+    build:
+      context: ./complaint-management-frontend
+      args:
+        VITE_API_URL: http://localhost:8080
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+
+volumes:
+  complaint_db_data:
+  complaint_uploads:

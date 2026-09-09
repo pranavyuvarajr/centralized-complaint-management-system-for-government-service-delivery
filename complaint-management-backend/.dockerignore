@@ -1,0 +1,6 @@
+target/
+uploads/*
+!uploads/.gitkeep
+*.iml
+.idea/
+.vscode/
