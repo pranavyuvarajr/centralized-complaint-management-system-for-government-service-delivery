@@ -1,179 +1,543 @@
 # Centralized Complaint Management System for Government Service Delivery
 
-A full-stack web application enabling citizens to register and track government service
-complaints, officials to manage and resolve them, and administrators to monitor the entire
-system. Built as an academic demonstration project — not affiliated with any real government
-body.
+A full-stack complaint management platform that provides a centralized workflow for citizens to submit and track complaints, government officials to process complaints within their departments, and administrators to manage the system.
 
-## Architecture
+> **Academic project:** This application is a demonstration project and is not affiliated with any real government organization.
 
+## Live Deployment
+
+**Frontend:** https://centralized-complaint-management-sy.vercel.app/
+
+### Deployment Architecture
+
+```text
+                         HTTPS
+┌─────────────────────┐
+│ Vercel              │
+│ React + Vite        │
+│ Frontend            │
+└──────────┬──────────┘
+           │
+           │ HTTPS REST API
+           ▼
+┌─────────────────────┐
+│ Cloudflare          │
+│ Quick Tunnel        │
+└──────────┬──────────┘
+           │
+           │ Tunnel
+           ▼
+┌─────────────────────┐
+│ Oracle Cloud (OCI)  │
+│ Ubuntu VM            │
+│                      │
+│ Spring Boot :8080    │
+│ managed by systemd  │
+└──────────┬──────────┘
+           │
+           │ PostgreSQL
+           ▼
+┌─────────────────────┐
+│ Neon PostgreSQL     │
+│ Managed Database    │
+└─────────────────────┘
 ```
-React (Vite) ──HTTPS──▶ Spring Boot REST API ──JDBC──▶ PostgreSQL
-```
 
-The frontend and backend are fully decoupled and talk only over the REST API, so each can be
-deployed and scaled independently (static host + web service + managed Postgres), or run
-together locally with a single `docker compose up`.
+### Deployment Details
+
+- **Frontend:** React/Vite deployed on Vercel.
+- **Backend:** Spring Boot REST API deployed on an Oracle Cloud Infrastructure (OCI) Ubuntu VM.
+- **Backend process management:** Spring Boot runs as a `systemd` service, so it continues running after SSH sessions are closed and is configured to start automatically with the VM.
+- **HTTPS access to backend:** Cloudflare Quick Tunnel exposes the Spring Boot service through a temporary HTTPS `trycloudflare.com` URL. This allows the HTTPS Vercel frontend to communicate with the HTTP Spring Boot service without mixed-content browser blocking.
+- **Cloudflare process management:** The Quick Tunnel runs as a `systemd` service independently of the SSH session.
+- **Database:** PostgreSQL hosted on Neon.
+- **Current public frontend URL:** `https://centralized-complaint-management-sy.vercel.app/`
+
+> **Quick Tunnel limitation:** The Cloudflare Quick Tunnel is intended for development/testing and does not provide a permanent hostname or uptime guarantee. The generated `trycloudflare.com` URL can change if the tunnel is recreated. For production, a named Cloudflare Tunnel with a domain or another permanent HTTPS solution should be used.
 
 ## Features
 
-- **Citizens**: submit complaints (with category, location, and file attachment), track status
-  by a public reference number (`CMP-2026-000001`) with no login required, message the assigned
-  official, reopen or close resolved complaints, and leave a star rating + feedback.
-- **Officials**: department-scoped queue with search/filter/pagination, enforced status-transition
-  rules (no skipping steps), priority handling, resolution notes, and an overdue-complaint stat.
-- **Admins**: system dashboard with live charts (by category, by department, monthly volume),
-  complaint assignment (department + specific official, validated server-side), category
-  management, department management (soft-deactivate, never hard-delete), user management
-  (activate/deactivate), and a searchable audit log of administrative actions.
-- **Cross-cutting**: JWT auth with independent backend-side role checks (not just hidden UI),
-  in-app notifications, full status-history timeline per complaint, login rate limiting,
-  consistent JSON success/error responses, and no data or statistics that aren't computed from
-  the actual database.
+### Citizen
+
+- Register and log in.
+- Submit complaints with:
+  - Title
+  - Description
+  - Category
+  - Location
+  - File attachments
+- View submitted complaints.
+- Track a complaint using its public complaint/reference number without logging in.
+- View complaint details and status history.
+- Communicate with the assigned official through comments/messages.
+- Reopen eligible resolved complaints.
+- Close eligible complaints.
+- Submit star ratings and feedback for complaints.
+- Receive in-app notifications.
+
+### Official
+
+- View complaints assigned to their department.
+- Search, filter and paginate complaints.
+- View complaint details and status history.
+- Process complaints through controlled status transitions.
+- Update complaint status.
+- Handle complaint priority.
+- Add resolution information.
+- View department-level complaint information and dashboard data.
+- Receive notifications.
+
+### Administrator
+
+- View system dashboard and statistics.
+- View complaint statistics by category, department and month.
+- Manage complaints and assignments.
+- Assign complaints to departments and specific officials.
+- Change complaint priority.
+- Manage departments.
+- Activate/deactivate departments.
+- Manage users.
+- Activate/deactivate users.
+- Reset/update user passwords through administrative functions.
+- Manage complaint categories.
+- View/search administrative audit logs.
+
+### Cross-cutting functionality
+
+- JWT-based authentication.
+- Backend-enforced role-based authorization.
+- Spring Security.
+- Login rate limiting.
+- Complaint status history.
+- In-app notifications.
+- File attachment handling.
+- Request validation.
+- Centralized JSON error handling.
+- PostgreSQL persistence through Spring Data JPA.
+- Dynamic complaint search/filtering.
+- Health endpoint through Spring Boot Actuator.
+
+## Technology Stack
+
+### Frontend
+
+- React 19
+- Vite 6
+- React Router 7
+- Axios
+- CSS
+
+### Backend
+
+- Java 21
+- Spring Boot 3.5.0
+- Spring Web
+- Spring Security
+- Spring Data JPA
+- Hibernate
+- Spring Validation
+- Spring Boot Actuator
+- JSON Web Tokens (JJWT 0.12.6)
+- Lombok
+- Maven
+
+### Database
+
+- PostgreSQL
+- Neon PostgreSQL for the deployed environment
+
+### Deployment / Infrastructure
+
+- Oracle Cloud Infrastructure (OCI)
+- Ubuntu Linux
+- Vercel
+- Cloudflare Tunnel
+- systemd
 
 ## Project Structure
 
-```
+```text
 complaint-management-system/
-├── complaint-management-frontend/   # React + Vite
+│
+├── complaint-management-frontend/
 │   ├── src/
-│   │   ├── components/              # Navbar, Sidebar, badges, notifications, pagination…
-│   │   ├── pages/                   # All page components
-│   │   ├── services/api.js          # Axios API layer
-│   │   ├── context/AuthContext.jsx  # Auth state management
-│   │   ├── routes/                  # ProtectedRoute
-│   │   ├── App.jsx                  # Router config
-│   │   └── main.jsx                 # Entry point
-│   ├── Dockerfile / nginx.conf
-│   └── package.json
-│
-├── complaint-management-backend/    # Java Spring Boot
-│   ├── src/main/java/com/project/complaint/
-│   │   ├── controller/              # REST controllers
-│   │   ├── service/                 # Business logic
-│   │   ├── repository/              # JPA repositories
-│   │   ├── entity/                  # Database entities
-│   │   ├── dto/                     # Data transfer objects
-│   │   ├── security/                # JWT auth + login rate limiter
-│   │   ├── specification/           # Dynamic complaint search/filter
-│   │   └── config/                  # Security, CORS, seed data, error handling
+│   │   ├── components/
+│   │   ├── pages/
+│   │   ├── services/
+│   │   ├── context/
+│   │   ├── routes/
+│   │   ├── App.jsx
+│   │   └── main.jsx
+│   ├── public/
+│   ├── nginx.conf
 │   ├── Dockerfile
-│   └── pom.xml
+│   ├── package.json
+│   └── .env.example
 │
-├── docker-compose.yml                # One-command local stack (Postgres + backend + frontend)
+├── complaint-management-backend/
+│   ├── src/main/java/com/project/complaint/
+│   │   ├── controller/
+│   │   ├── service/
+│   │   ├── repository/
+│   │   ├── entity/
+│   │   ├── dto/
+│   │   ├── security/
+│   │   ├── specification/
+│   │   └── config/
+│   ├── src/main/resources/
+│   │   └── application.properties
+│   ├── Dockerfile
+│   ├── pom.xml
+│   └── .env.example
+│
+├── docker-compose.yml
 └── README.md
 ```
 
-## Demo Accounts
+## Database Model
 
-Seeded automatically on first run (see `DataInitializer.java`):
+The application uses PostgreSQL with JPA/Hibernate.
 
-| Role      | Email                              | Password      |
-|-----------|-------------------------------------|---------------|
-| Admin     | `admin@example.com`                | `admin123`    |
-| Official  | `official.water@example.com`       | `official123` |
-| Official  | `official.publicworks@example.com` | `official123` |
-| Citizen   | `citizen@example.com`              | `citizen123`  |
-| Citizen   | `citizen2@example.com`             | `citizen123`  |
+The main domain areas include:
 
-These are demonstration credentials only — change or remove them before any real deployment.
+```text
+User
+ ├── Citizen
+ └── Official
+        │
+        └── Department
 
-## Running Locally — Option A: Docker (easiest)
+Complaint
+ ├── Category
+ ├── Department
+ ├── Assigned Official
+ ├── Complaint History
+ ├── Comments
+ ├── Attachments
+ ├── Feedback
+ └── Notifications
+```
 
-Requires only Docker installed. This starts Postgres, the backend, and the frontend together.
+Hibernate is configured with:
+
+```properties
+spring.jpa.hibernate.ddl-auto=update
+```
+
+so the schema is created/updated automatically from the entity model.
+
+## Local Development
+
+### Prerequisites
+
+- Java 21+
+- Maven 3.9+
+- Node.js 22 LTS recommended
+- npm
+- PostgreSQL, or Docker
+
+### Backend
+
+From the project root:
 
 ```bash
-git clone <your-repo-url>
-cd complaint-management-system
+cd complaint-management-backend
+mvn clean package -DskipTests
+java -jar target/complaint-management-1.0.0.jar
+```
+
+Or run directly during development:
+
+```bash
+mvn spring-boot:run
+```
+
+Backend:
+
+```text
+http://localhost:8080
+```
+
+### Frontend
+
+In another terminal:
+
+```bash
+cd complaint-management-frontend
+npm install
+npm run dev
+```
+
+Frontend:
+
+```text
+http://localhost:5173
+```
+
+The frontend API URL is configured through:
+
+```env
+VITE_API_URL=http://localhost:8080
+```
+
+Vite environment variables are evaluated at build time, so the production API URL must be configured before building/deploying the frontend.
+
+## Local Docker Setup
+
+The repository includes a `docker-compose.yml` for running PostgreSQL, the backend and frontend together.
+
+```bash
 docker compose up --build
 ```
 
-- Frontend: http://localhost:5173
-- Backend API: http://localhost:8080
-- The database schema and seed data are created automatically on first boot.
+The intended local services are:
 
-## Running Locally — Option B: Manual (no Docker)
-
-**Prerequisites:** Java 17+, Maven, Node 18+, PostgreSQL running locally.
-
-```bash
-# 1. Create the database
-createdb complaint_db
-
-# 2. Backend
-cd complaint-management-backend
-cp .env.example .env        # edit if your Postgres credentials differ
-mvn spring-boot:run
-# API now running on http://localhost:8080
-
-# 3. Frontend (separate terminal)
-cd complaint-management-frontend
-cp .env.example .env.local
-npm install
-npm run dev
-# App now running on http://localhost:5173
+```text
+Frontend: http://localhost:5173
+Backend:  http://localhost:8080
+Postgres: localhost:5432
 ```
 
-The schema is created/updated automatically by Hibernate (`ddl-auto=update`) — no manual
-migrations needed, and nothing about the existing schema is changed by this setup beyond adding
-new columns/tables for the newer features (priority, categories, comments, attachments,
-feedback, notifications, audit log).
+The Docker configuration is primarily intended for local development/testing. For the deployed application, the actual environment uses Vercel, OCI, Cloudflare Tunnel and Neon PostgreSQL.
 
-## Deploying to the Cloud
+## Environment Variables
 
-The app needs no code changes to deploy — every environment-specific value (database
-connection, JWT secret, CORS origin, port) is read from environment variables with sane local
-defaults, so cloud deployment is purely a matter of configuration.
+### Backend
 
-**Suggested free/low-cost combination:**
+The backend reads configuration from environment variables:
 
-| Component  | Where it can run                          |
-|------------|--------------------------------------------|
-| Database   | Neon / Railway Postgres / Supabase |
-| Backend    | Railway / Render (deploy the `complaint-management-backend` folder, or its Dockerfile) |
-| Frontend   | Vercel / Netlify / Render Static Site (deploy the `complaint-management-frontend` folder) |
-
-**Backend environment variables to set on your host:**
-
-```
-DATABASE_URL=jdbc:postgresql://<host>:5432/<db>
-DATABASE_USERNAME=<user>
+```env
+DATABASE_URL=jdbc:postgresql://<host>:5432/<database>
+DATABASE_USERNAME=<username>
 DATABASE_PASSWORD=<password>
-JWT_SECRET=<a long random string>
-CORS_ORIGINS=https://<your-frontend-domain>
-PORT=8080                # most platforms set this for you automatically
+
+JWT_SECRET=<long-random-secret>
+JWT_EXPIRATION_MS=86400000
+
+CORS_ORIGINS=https://<frontend-domain>
+
+PORT=8080
+UPLOAD_DIR=uploads
 ```
 
-**Frontend environment variable:**
+### Frontend
 
+```env
+VITE_API_URL=https://<backend-api-url>
 ```
-VITE_API_URL=https://<your-backend-domain>
+
+Do not commit real database passwords, JWT secrets or other credentials to Git.
+
+## Demo Accounts
+
+The application seeds demonstration accounts on first startup.
+
+| Role | Email | Password |
+|---|---|---|
+| Admin | `admin@example.com` | `admin123` |
+| Official | `official.water@example.com` | `official123` |
+| Official | `official.publicworks@example.com` | `official123` |
+| Citizen | `citizen@example.com` | `citizen123` |
+| Citizen | `citizen2@example.com` | `citizen123` |
+
+These credentials are for demonstration purposes only. They must be changed or removed before any real-world deployment.
+
+## API Overview
+
+### Authentication
+
+```text
+POST /api/auth/register
+POST /api/auth/login
 ```
 
-Set it at build time (most static hosts let you set env vars per-project) — Vite bakes it into
-the build.
+### Complaints
 
-If your platform builds from a Dockerfile directly, both `complaint-management-backend/Dockerfile`
-and `complaint-management-frontend/Dockerfile` are ready to use as-is; otherwise most platforms
-auto-detect a Maven project and a Node/Vite project respectively without any Dockerfile at all.
+```text
+POST   /api/complaints
+GET    /api/complaints
+GET    /api/complaints/{id}
+GET    /api/complaints/track/{complaintNumber}
+PUT    /api/complaints/{id}/status
+PATCH  /api/complaints/{id}/priority
+POST   /api/complaints/{id}/reopen
+POST   /api/complaints/{id}/close
+GET    /api/complaints/{id}/history
+GET    /api/complaints/dashboard/citizen
+GET    /api/complaints/dashboard/official
+```
 
-A `GET /actuator/health` endpoint is exposed on the backend for platforms that require a health
-check URL.
+### Departments
 
-## Notes on File Uploads in the Cloud
+```text
+GET    /api/departments
+POST   /api/departments
+PUT    /api/departments/{id}
+PATCH  /api/departments/{id}/toggle
+DELETE /api/departments/{id}
+```
 
-Attachments are stored on local disk (`UPLOAD_DIR`, default `uploads/`) to keep the project
-simple, as specified. Most container-based hosts (Railway, Render) reset local disk on
-redeploy, so uploaded files won't survive a redeploy unless you attach a persistent volume.
-That's fine for a demonstration/college project; swapping in cloud object storage (S3-compatible)
-would be the natural next step for a production system, but is intentionally out of scope here
-to keep the stack simple.
+### Complaint Categories
 
-## Known Limitations
+```text
+GET    /api/categories
+GET    /api/categories/all
+POST   /api/categories
+PUT    /api/categories/{id}
+PATCH  /api/categories/{id}/toggle
+DELETE /api/categories/{id}
+```
 
-- This was assembled without a Java compiler available in the authoring environment, so while
-  every file was written carefully against the existing code's own conventions, a first
-  `mvn clean package` locally is the real compile check — please run it before deploying.
-- The frontend build (`npm run build`) was verified to succeed here.
-- Rate limiting on login is in-memory only (resets on backend restart) — sufficient for a
-  demo, not for a multi-instance production deployment.
+### Comments
+
+```text
+GET  /api/complaints/{complaintId}/comments
+POST /api/complaints/{complaintId}/comments
+```
+
+### Feedback
+
+```text
+GET  /api/complaints/{complaintId}/feedback
+POST /api/complaints/{complaintId}/feedback
+```
+
+### Attachments
+
+```text
+POST /api/complaints/{complaintId}/attachments
+GET  /api/complaints/{complaintId}/attachments
+GET  /api/attachments/{attachmentId}/download
+```
+
+### Notifications
+
+```text
+GET   /api/notifications
+GET   /api/notifications/unread-count
+PATCH /api/notifications/{id}/read
+PATCH /api/notifications/read-all
+```
+
+### User
+
+```text
+GET   /api/users/me
+PATCH /api/users/me
+POST  /api/users/me/password
+```
+
+### Administration
+
+```text
+GET   /api/admin/users
+GET   /api/admin/users/role/{role}
+POST  /api/admin/users
+PATCH /api/admin/users/{id}/active
+PATCH /api/admin/users/{id}/password
+DELETE /api/admin/users/{id}
+
+PATCH /api/admin/complaints/{id}/assign
+PATCH /api/admin/complaints/{id}/priority
+
+GET   /api/admin/stats
+GET   /api/admin/audit-logs
+```
+
+### Health Check
+
+```text
+GET /actuator/health
+```
+
+## File Uploads
+
+Uploaded complaint attachments are stored on the backend filesystem using the configured:
+
+```env
+UPLOAD_DIR=uploads
+```
+
+The default maximum file size is:
+
+```text
+5 MB per file
+```
+
+and the maximum multipart request size is also:
+
+```text
+5 MB
+```
+
+For a production multi-instance deployment, object storage or a persistent shared storage solution would be preferable.
+
+## Security
+
+The application uses:
+
+- JWT authentication.
+- Spring Security authorization.
+- Role checks enforced by the backend.
+- Password hashing with BCrypt.
+- CORS configuration.
+- Login rate limiting.
+- Validation of incoming requests.
+- Administrative audit logging.
+- Stateless session management.
+
+Production deployments should use strong, randomly generated JWT secrets and database credentials supplied through environment variables or a secrets manager.
+
+## Current Deployment Operations
+
+The deployed backend is managed by Linux `systemd`.
+
+Spring Boot is configured as a service so that:
+
+```text
+OCI VM boots
+     ↓
+systemd starts Spring Boot
+     ↓
+Spring Boot listens on :8080
+```
+
+Cloudflare Tunnel is also managed as a service:
+
+```text
+OCI VM boots
+     ↓
+systemd starts cloudflared
+     ↓
+HTTPS tunnel → localhost:8080
+```
+
+Therefore, an SSH session is **not required** to keep the application running.
+
+## Limitations
+
+- The current public backend exposure uses a Cloudflare Quick Tunnel, which has no permanent hostname or uptime SLA.
+- Quick Tunnel URLs can change when a new tunnel is created.
+- Login rate limiting is in-memory and resets when the backend restarts.
+- Uploaded files are stored on local disk rather than object storage.
+- `ddl-auto=update` is convenient for a project/demo but a production system would normally use explicit database migrations.
+- The application is designed as a single-backend deployment; horizontal scaling would require additional considerations for uploads, rate limiting and shared state.
+
+## Future Improvements
+
+Possible production-oriented improvements include:
+
+- Replace Quick Tunnel with a permanent HTTPS endpoint.
+- Use a custom domain and a named Cloudflare Tunnel or OCI-native HTTPS architecture.
+- Add database migrations with Flyway or Liquibase.
+- Move file attachments to object storage.
+- Replace in-memory rate limiting with a distributed solution.
+- Add automated CI/CD.
+- Add automated tests and integration tests.
+- Add centralized logging and monitoring.
+- Add multiple backend instances behind a load balancer.
+- Introduce stronger secret management.
+
+## License
+
+This project is an academic/demo application. Add an appropriate license here if the repository is intended for public redistribution.
