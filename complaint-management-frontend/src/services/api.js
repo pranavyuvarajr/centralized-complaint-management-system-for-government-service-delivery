@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE = 'https://leisure-jumping-icq-recipient.trycloudflare.com';
+const API_BASE = 'https://152.67.3.122';
 
 const api = axios.create({
   baseURL: API_BASE + '/api',
