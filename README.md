@@ -21,17 +21,19 @@ A full-stack complaint management platform that provides a centralized workflow 
            │ HTTPS REST API
            ▼
 ┌─────────────────────┐
-│ Nginx          │
-│ Nginx + Let's Encrypt IP Certificate        │
+│ Nginx               │
+│ Nginx + Let's       |
+| Encrypt IP          |
+| Certificate         │
 └──────────┬──────────┘
            │
            │ Tunnel
            ▼
 ┌─────────────────────┐
 │ Oracle Cloud (OCI)  │
-│ Ubuntu VM            │
-│                      │
-│ Spring Boot :8080    │
+│ Ubuntu VM           │
+│                     │
+│ Spring Boot :8080   │
 │ managed by systemd  │
 └──────────┬──────────┘
            │
@@ -537,7 +539,3 @@ Possible production-oriented improvements include:
 - Add centralized logging and monitoring.
 - Add multiple backend instances behind a load balancer.
 - Introduce stronger secret management.
-
-## License
-
-This project is an academic/demo application. Add an appropriate license here if the repository is intended for public redistribution.
