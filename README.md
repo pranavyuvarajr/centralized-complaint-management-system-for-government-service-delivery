@@ -6,7 +6,7 @@ A full-stack complaint management platform that provides a centralized workflow 
 
 ## Live Deployment
 
-**Frontend:** https://centralized-complaint-management-sy.vercel.app/
+**Frontend:** https://centralized-complaint-management.vercel.app/
 
 ### Deployment Architecture
 
