@@ -6,7 +6,7 @@ A full-stack complaint management platform that provides a centralized workflow 
 
 ## Live Deployment
 
-**Frontend:** https://centralized-complaint-management.vercel.app/
+**Frontend:** https://centralized-complaint-management-sy.vercel.app/
 
 ### Deployment Architecture
 
@@ -21,8 +21,8 @@ A full-stack complaint management platform that provides a centralized workflow 
            │ HTTPS REST API
            ▼
 ┌─────────────────────┐
-│ Cloudflare          │
-│ Quick Tunnel        │
+│ Nginx          │
+│ Nginx + Let's Encrypt IP Certificate        │
 └──────────┬──────────┘
            │
            │ Tunnel
@@ -48,12 +48,12 @@ A full-stack complaint management platform that provides a centralized workflow 
 - **Frontend:** React/Vite deployed on Vercel.
 - **Backend:** Spring Boot REST API deployed on an Oracle Cloud Infrastructure (OCI) Ubuntu VM.
 - **Backend process management:** Spring Boot runs as a `systemd` service, so it continues running after SSH sessions are closed and is configured to start automatically with the VM.
-- **HTTPS access to backend:** Cloudflare Quick Tunnel exposes the Spring Boot service through a temporary HTTPS `trycloudflare.com` URL. This allows the HTTPS Vercel frontend to communicate with the HTTP Spring Boot service without mixed-content browser blocking.
-- **Cloudflare process management:** The Quick Tunnel runs as a `systemd` service independently of the SSH session.
+- **HTTPS access to backend:** Nginx + Let's Encrypt IP Certificate exposes the Spring Boot service through a temporary HTTPS `IP-based HTTPS endpoint` URL. This allows the HTTPS Vercel frontend to communicate with the HTTP Spring Boot service without mixed-content browser blocking.
+- **Nginx process management:** The Nginx + Let's Encrypt IP Certificate runs as a `systemd` service independently of the SSH session.
 - **Database:** PostgreSQL hosted on Neon.
-- **Current public frontend URL:** `https://centralized-complaint-management-sy.vercel.app/`
+- **Current public frontend URL:** `https://centralized-complaint-management.vercel.app/`
 
-> **Quick Tunnel limitation:** The Cloudflare Quick Tunnel is intended for development/testing and does not provide a permanent hostname or uptime guarantee. The generated `trycloudflare.com` URL can change if the tunnel is recreated. For production, a named Cloudflare Tunnel with a domain or another permanent HTTPS solution should be used.
+> **Nginx + Let's Encrypt IP Certificate limitation:** The Nginx + Let's Encrypt IP Certificate is intended for development/testing and does not provide a permanent hostname or uptime guarantee. The generated `IP-based HTTPS endpoint` URL can change if the tunnel is recreated. For production, a named Nginx + Let's Encrypt with a domain or another permanent HTTPS solution should be used.
 
 ## Features
 
@@ -151,7 +151,7 @@ A full-stack complaint management platform that provides a centralized workflow 
 - Oracle Cloud Infrastructure (OCI)
 - Ubuntu Linux
 - Vercel
-- Cloudflare Tunnel
+- Nginx + Let's Encrypt
 - systemd
 
 ## Project Structure
@@ -298,7 +298,7 @@ Backend:  http://localhost:8080
 Postgres: localhost:5432
 ```
 
-The Docker configuration is primarily intended for local development/testing. For the deployed application, the actual environment uses Vercel, OCI, Cloudflare Tunnel and Neon PostgreSQL.
+The Docker configuration is primarily intended for local development/testing. For the deployed application, the actual environment uses Vercel, OCI, Nginx + Let's Encrypt and Neon PostgreSQL.
 
 ## Environment Variables
 
@@ -502,22 +502,22 @@ systemd starts Spring Boot
 Spring Boot listens on :8080
 ```
 
-Cloudflare Tunnel is also managed as a service:
+Nginx + Let's Encrypt is also managed as a service:
 
 ```text
 OCI VM boots
      ↓
-systemd starts cloudflared
+systemd starts Nginx
      ↓
-HTTPS tunnel → localhost:8080
+HTTPS :443 → HTTP localhost:8080
 ```
 
 Therefore, an SSH session is **not required** to keep the application running.
 
 ## Limitations
 
-- The current public backend exposure uses a Cloudflare Quick Tunnel, which has no permanent hostname or uptime SLA.
-- Quick Tunnel URLs can change when a new tunnel is created.
+- The current public backend exposure uses a Nginx + Let's Encrypt IP Certificate, which has uses the OCI public IP as the HTTPS endpoint.
+- Nginx + Let's Encrypt IP Certificate URLs can change when a new tunnel is created.
 - Login rate limiting is in-memory and resets when the backend restarts.
 - Uploaded files are stored on local disk rather than object storage.
 - `ddl-auto=update` is convenient for a project/demo but a production system would normally use explicit database migrations.
@@ -527,8 +527,8 @@ Therefore, an SSH session is **not required** to keep the application running.
 
 Possible production-oriented improvements include:
 
-- Replace Quick Tunnel with a permanent HTTPS endpoint.
-- Use a custom domain and a named Cloudflare Tunnel or OCI-native HTTPS architecture.
+- Use a custom domain if a permanent hostname is required.
+- Use a custom domain and a named Nginx + Let's Encrypt or OCI-native HTTPS architecture.
 - Add database migrations with Flyway or Liquibase.
 - Move file attachments to object storage.
 - Replace in-memory rate limiting with a distributed solution.

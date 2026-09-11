@@ -145,7 +145,7 @@ The completed frontend is deployed on Vercel.
 **Live application:**
 
 ```text
-https://centralized-complaint-management-sy.vercel.app/
+https://centralized-complaint-management.vercel.app/
 ```
 
 The deployed architecture is:
@@ -159,7 +159,7 @@ React + Vite
    │
    │ HTTPS
    ▼
-Cloudflare Quick Tunnel
+Nginx + Let's Encrypt IP Certificate
    │
    ▼
 OCI Ubuntu VM
@@ -169,7 +169,7 @@ Spring Boot :8080
 Neon PostgreSQL
 ```
 
-The Vercel frontend communicates with the backend over HTTPS through the Cloudflare Quick Tunnel.
+The Vercel frontend communicates with the backend over HTTPS through Nginx on the OCI public IP.
 
 This is important because a browser blocks an HTTPS frontend from making an insecure HTTP request to the backend as mixed active content.
 
@@ -254,18 +254,18 @@ Do not place database credentials, JWT secrets or other backend secrets in front
 
 ## Deployment Limitation
 
-The current deployment uses a Cloudflare **Quick Tunnel**.
+The current deployment uses a Nginx **Nginx + Let's Encrypt IP Certificate**.
 
-Quick Tunnel provides a temporary HTTPS URL suitable for development/demo deployments, but the URL is not intended to be a permanent production hostname.
+Nginx + Let's Encrypt IP Certificate provides a HTTPS endpoint suitable for development/demo deployments, but the URL is not intended to be a permanent production hostname.
 
 For a long-term production deployment, use a permanent HTTPS backend endpoint such as:
 
-- A named Cloudflare Tunnel with a custom domain.
+- A named Nginx + Let's Encrypt with a custom domain.
 - An OCI-native HTTPS configuration.
 - Another production API hosting platform.
 
 ## Live Application
 
 ```text
-https://centralized-complaint-management-sy.vercel.app/
+https://centralized-complaint-management.vercel.app/
 ```

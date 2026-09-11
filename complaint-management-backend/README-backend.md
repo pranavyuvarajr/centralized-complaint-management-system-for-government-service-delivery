@@ -137,10 +137,10 @@ Ubuntu VM
         ├── systemd
         │      └── Spring Boot
         │
-        └── cloudflared
+        └── Nginx
                │
                ▼
-        Cloudflare Quick Tunnel
+        Nginx + Let's Encrypt IP Certificate
 ```
 
 The backend runs on port `8080` and is managed by `systemd`.
@@ -151,7 +151,7 @@ This means the backend:
 - Starts automatically when the VM boots.
 - Is not dependent on an open SSH terminal.
 
-The Cloudflare tunnel is also managed by `systemd` and forwards the public HTTPS endpoint to the Spring Boot service.
+The Nginx tunnel is also managed by `systemd` and forwards the public HTTPS endpoint to the Spring Boot service.
 
 ## Production/Cloud Environment Variables
 
