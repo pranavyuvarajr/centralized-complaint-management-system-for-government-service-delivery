@@ -28,9 +28,9 @@ export default function Home() {
           <Link to="/register" className="btn btn--outline" style={{ color: '#fff', borderColor: 'rgba(255,255,255,0.5)' }}>
             Register
           </Link>
-          <Link to="/track" className="btn btn--ghost" style={{ color: '#fff', borderColor: 'rgba(255,255,255,0.4)' }}>
+          {/* <Link to="/track" className="btn btn--ghost" style={{ color: '#fff', borderColor: 'rgba(255,255,255,0.4)' }}>
             Track a Complaint
-          </Link>
+          </Link> */}
         </div>
       </div>
 
