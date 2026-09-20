@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { authAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { phoneError } from '../utils/phone';
 
 export default function Register() {
   const [form, setForm] = useState({ name: '', email: '', phone: '', password: '' });
@@ -13,6 +14,11 @@ export default function Register() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    const phoneProblem = phoneError(form.phone);
+    if (phoneProblem) {
+      setError(phoneProblem);
+      return;
+    }
     setLoading(true);
     try {
       const { data } = await authAPI.register({ ...form, role: 'CITIZEN' });
@@ -43,8 +49,9 @@ export default function Register() {
               value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
           </div>
           <div className="form-group">
-            <label>Phone (optional)</label>
-            <input type="tel" className="form-control"
+            <label>Mobile Number</label>
+            <input type="tel" inputMode="tel" autoComplete="tel" className="form-control" required
+              placeholder="10-digit mobile number" maxLength={17}
               value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} />
           </div>
           <div className="form-group">

@@ -3,9 +3,11 @@ package com.project.complaint.service;
 import com.project.complaint.dto.CategoryDto;
 import com.project.complaint.entity.Complaint;
 import com.project.complaint.entity.ComplaintCategory;
+import com.project.complaint.entity.Department;
 import com.project.complaint.exception.ReassignmentRequiredException;
 import com.project.complaint.repository.ComplaintCategoryRepository;
 import com.project.complaint.repository.ComplaintRepository;
+import com.project.complaint.repository.DepartmentRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.stereotype.Service;
@@ -17,10 +19,12 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class ComplaintCategoryService {
 
     private final ComplaintCategoryRepository categoryRepository;
     private final ComplaintRepository complaintRepository;
+    private final DepartmentRepository departmentRepository;
 
     public List<CategoryDto.Response> getActiveCategories() {
         return categoryRepository.findByActiveTrue().stream()
@@ -32,6 +36,7 @@ public class ComplaintCategoryService {
                 .map(this::mapToResponse).collect(Collectors.toList());
     }
 
+    @Transactional
     public CategoryDto.Response createCategory(CategoryDto.CreateRequest request) {
         if (categoryRepository.existsByName(request.getName())) {
             throw new RuntimeException("Category already exists");
@@ -39,19 +44,33 @@ public class ComplaintCategoryService {
         ComplaintCategory category = categoryRepository.save(ComplaintCategory.builder()
                 .name(request.getName())
                 .description(request.getDescription())
+                .department(resolveDepartment(request.getDepartmentId()))
                 .active(true)
+                .imageRequired(request.getImageRequired() == null || request.getImageRequired())
+                .locationRequired(request.getLocationRequired() == null || request.getLocationRequired())
                 .build());
         return mapToResponse(category);
     }
 
+    @Transactional
     public CategoryDto.Response updateCategory(Long id, CategoryDto.CreateRequest request) {
         ComplaintCategory category = categoryRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Category not found"));
         category.setName(request.getName());
         category.setDescription(request.getDescription());
+        category.setDepartment(resolveDepartment(request.getDepartmentId()));
+        category.setImageRequired(request.getImageRequired() == null || request.getImageRequired());
+        category.setLocationRequired(request.getLocationRequired() == null || request.getLocationRequired());
         return mapToResponse(categoryRepository.save(category));
     }
 
+    private Department resolveDepartment(Long departmentId) {
+        if (departmentId == null) return null;
+        return departmentRepository.findById(departmentId)
+                .orElseThrow(() -> new RuntimeException("Selected department not found"));
+    }
+
+    @Transactional
     public CategoryDto.Response toggleActive(Long id) {
         ComplaintCategory category = categoryRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Category not found"));
@@ -116,6 +135,10 @@ public class ComplaintCategoryService {
                 .name(c.getName())
                 .description(c.getDescription())
                 .active(c.isActive())
+                .departmentId(c.getDepartment() != null ? c.getDepartment().getId() : null)
+                .departmentName(c.getDepartment() != null ? c.getDepartment().getName() : null)
+                .imageRequired(c.isImageRequired())
+                .locationRequired(c.isLocationRequired())
                 .build();
     }
 }

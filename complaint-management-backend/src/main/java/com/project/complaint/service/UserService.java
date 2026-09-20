@@ -2,13 +2,19 @@ package com.project.complaint.service;
 
 import com.project.complaint.dto.UserDto;
 import com.project.complaint.entity.Complaint;
+import com.project.complaint.entity.ComplaintHistory;
+import com.project.complaint.entity.ComplaintStatus;
+import com.project.complaint.entity.Department;
 import com.project.complaint.entity.Role;
 import com.project.complaint.entity.User;
 import com.project.complaint.exception.ReassignmentRequiredException;
 import com.project.complaint.repository.ComplaintCommentRepository;
+import com.project.complaint.repository.ComplaintHistoryRepository;
 import com.project.complaint.repository.ComplaintRepository;
+import com.project.complaint.repository.DepartmentRepository;
 import com.project.complaint.repository.NotificationRepository;
 import com.project.complaint.repository.UserRepository;
+import com.project.complaint.util.PhoneUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -28,7 +34,14 @@ public class UserService {
     private final ComplaintRepository complaintRepository;
     private final ComplaintCommentRepository commentRepository;
     private final NotificationRepository notificationRepository;
+    private final DepartmentRepository departmentRepository;
+    private final ComplaintHistoryRepository historyRepository;
+    private final NotificationService notificationService;
     private final PasswordEncoder passwordEncoder;
+
+    /** Complaints in these states are finished; only the others need an owner when an official moves away. */
+    private static final List<ComplaintStatus> FINAL_STATUSES =
+            List.of(ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED, ComplaintStatus.REJECTED);
 
     /** Used by callers (e.g. audit logging) that need the user's display details before/without a full DTO list scan. */
     public UserDto.Response getUserById(Long id) {
@@ -55,6 +68,145 @@ public class UserService {
                 .orElseThrow(() -> new RuntimeException("User not found"));
         user.setActive(active);
         return mapToResponse(userRepository.save(user));
+    }
+
+    /**
+     * Mobile numbers must be unique across accounts. Only checked when the
+     * number is actually changing, so an existing user who keeps their own
+     * number (even if an older duplicate exists in legacy data) can still save
+     * other edits.
+     */
+    private void ensurePhoneAvailable(User user, String normalizedPhone) {
+        String current = PhoneUtil.normalizeOrNull(user.getPhone());
+        if (normalizedPhone.equals(current)) return;
+        if (userRepository.existsByPhoneAndIdNot(normalizedPhone, user.getId())) {
+            throw new IllegalStateException(PhoneUtil.DUPLICATE_MESSAGE);
+        }
+    }
+
+    /**
+     * Admin edit of another user: name and phone for anyone, plus the
+     * department for officials. Email and role are intentionally not
+     * changeable here (email is the login identity and the JWT subject).
+     * <p>
+     * Officials only see complaints of their own department, so when an
+     * official is moved to a different department their still-active
+     * complaints would be stranded with someone who can no longer open them.
+     * Those complaints stay in the old department and must be either handed
+     * to another active official there (reassignTo) or explicitly left
+     * unassigned (unassignComplaints); if neither is given, a
+     * ReassignmentRequiredException lists the possible new owners so the UI
+     * can ask. Finished complaints (resolved / closed / rejected) keep
+     * crediting the official who handled them.
+     */
+    @Transactional
+    public UserDto.Response adminUpdateUser(Long id, UserDto.AdminUpdateRequest request, String adminEmail) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        User admin = userRepository.findByEmail(adminEmail)
+                .orElseThrow(() -> new RuntimeException("Admin account not found"));
+
+        String name = request.getName() == null ? "" : request.getName().trim();
+        if (name.isEmpty()) {
+            throw new IllegalStateException("Name is required.");
+        }
+        String phone = PhoneUtil.requireValid(request.getPhone());
+        ensurePhoneAvailable(user, phone);
+
+        Department oldDept = user.getDepartment();
+        Department newDept = null;
+        if (user.getRole() == Role.OFFICIAL && request.getDepartmentId() != null
+                && (oldDept == null || !request.getDepartmentId().equals(oldDept.getId()))) {
+            newDept = departmentRepository.findById(request.getDepartmentId())
+                    .orElseThrow(() -> new RuntimeException("Department not found"));
+            if (!newDept.isActive()) {
+                throw new IllegalStateException("\"" + newDept.getName() + "\" is inactive. Activate it first, or pick another department.");
+            }
+        }
+
+        if (newDept != null) {
+            String handoffSummary = "";
+            if (oldDept != null) {
+                handoffSummary = handOffActiveComplaints(user, oldDept, newDept, request, admin);
+            }
+            user.setDepartment(newDept);
+            notificationService.notify(user,
+                    "An administrator moved you to the " + newDept.getName() + " department." + handoffSummary, null);
+        }
+
+        user.setName(name);
+        user.setPhone(phone);
+        return mapToResponse(userRepository.save(user));
+    }
+
+    /**
+     * Moves an official's still-active complaints off them before they change
+     * department. Returns a short sentence for the official's notification
+     * (empty when there was nothing to hand off).
+     */
+    private String handOffActiveComplaints(User official, Department oldDept, Department newDept,
+                                           UserDto.AdminUpdateRequest request, User admin) {
+        List<Complaint> active = complaintRepository.findByAssignedOfficialIdAndStatusNotIn(official.getId(), FINAL_STATUSES);
+        if (active.isEmpty()) {
+            return "";
+        }
+
+        User target = null;
+        if (request.getReassignTo() != null) {
+            target = userRepository.findById(request.getReassignTo())
+                    .orElseThrow(() -> new RuntimeException("Selected official not found"));
+            if (target.getRole() != Role.OFFICIAL || !target.isActive()) {
+                throw new IllegalStateException("The reassignment target must be an active official.");
+            }
+            if (target.getId().equals(official.getId())) {
+                throw new IllegalStateException("Cannot reassign complaints to the official being moved.");
+            }
+            if (target.getDepartment() == null || !target.getDepartment().getId().equals(oldDept.getId())) {
+                throw new IllegalStateException(
+                        "The reassignment target must belong to " + oldDept.getName() + ", where these complaints stay.");
+            }
+        } else if (!request.isUnassignComplaints()) {
+            List<Map<String, Object>> options = userRepository.findByDepartmentId(oldDept.getId()).stream()
+                    .filter(u -> u.getRole() == Role.OFFICIAL && u.isActive() && !u.getId().equals(official.getId()))
+                    .map(u -> {
+                        Map<String, Object> m = new LinkedHashMap<>();
+                        m.put("id", u.getId());
+                        m.put("name", u.getName());
+                        return m;
+                    }).collect(Collectors.toList());
+
+            throw new ReassignmentRequiredException(
+                    official.getName() + " has " + active.size() + " active complaint(s) assigned to them in "
+                            + oldDept.getName() + ". Those complaints stay in " + oldDept.getName()
+                            + ", so choose who should take them over before moving " + official.getName()
+                            + " to " + newDept.getName() + ".",
+                    active.size(), options);
+        }
+
+        String remarks = target != null
+                ? "Reassigned from " + official.getName() + " to " + target.getName() + " because "
+                        + official.getName() + " was moved to " + newDept.getName()
+                : "Unassigned from " + official.getName() + " because they were moved to " + newDept.getName()
+                        + "; the complaint stays with " + oldDept.getName();
+
+        for (Complaint c : active) {
+            c.setAssignedOfficial(target);
+            historyRepository.save(ComplaintHistory.builder()
+                    .complaint(c)
+                    .status(c.getStatus())
+                    .remarks(remarks)
+                    .updatedBy(admin.getName())
+                    .build());
+            if (target != null) {
+                notificationService.notify(target,
+                        "Complaint " + c.getComplaintNumber() + " has been assigned to you.", c.getId());
+            }
+        }
+        complaintRepository.saveAll(active);
+
+        return target != null
+                ? " Your " + active.size() + " active complaint(s) were handed over to " + target.getName() + "."
+                : " Your " + active.size() + " active complaint(s) were left unassigned in " + oldDept.getName() + ".";
     }
 
     /**
@@ -158,8 +310,10 @@ public class UserService {
     public UserDto.Response updateProfile(String email, UserDto.UpdateProfileRequest request) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("User not found"));
+        String phone = PhoneUtil.requireValid(request.getPhone());
+        ensurePhoneAvailable(user, phone);
         user.setName(request.getName());
-        user.setPhone(request.getPhone());
+        user.setPhone(phone);
         return mapToResponse(userRepository.save(user));
     }
 
@@ -204,6 +358,7 @@ public class UserService {
                 .email(u.getEmail())
                 .phone(u.getPhone())
                 .role(u.getRole().name())
+                .departmentId(u.getDepartment() != null ? u.getDepartment().getId() : null)
                 .departmentName(u.getDepartment() != null ? u.getDepartment().getName() : null)
                 .active(u.isActive())
                 .createdAt(u.getCreatedAt())

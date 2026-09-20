@@ -11,8 +11,15 @@ import { useState } from 'react';
  *  - options: [{ id, name }]
  *  - onConfirm: (targetId) => void
  *  - onCancel: () => void
+ *  - confirmLabel: (optional) text of the confirm button, default "Reassign & Delete"
+ *  - label: (optional) text above the dropdown, default "Move to"
+ *  - noneLabel: (optional) adds a "no one" choice to the dropdown; picking it calls
+ *    onConfirm(null). Without it, a target must always be picked.
  */
-export default function ReassignModal({ title, message, options, onConfirm, onCancel }) {
+export default function ReassignModal({
+  title, message, options, onConfirm, onCancel,
+  confirmLabel = 'Reassign & Delete', label = 'Move to', noneLabel,
+}) {
   const [selected, setSelected] = useState(options[0]?.id ?? '');
 
   return (
@@ -21,8 +28,9 @@ export default function ReassignModal({ title, message, options, onConfirm, onCa
         <h3 className="modal__title">{title}</h3>
         <p className="modal__message">{message}</p>
         <div className="form-group">
-          <label>Move to</label>
+          <label>{label}</label>
           <select className="form-control" value={selected} onChange={(e) => setSelected(e.target.value)}>
+            {noneLabel && <option value="">{noneLabel}</option>}
             {options.map((o) => (
               <option key={o.id} value={o.id}>{o.name}</option>
             ))}
@@ -33,10 +41,10 @@ export default function ReassignModal({ title, message, options, onConfirm, onCa
           <button
             type="button"
             className="btn btn--primary"
-            disabled={!selected}
-            onClick={() => onConfirm(Number(selected))}
+            disabled={!noneLabel && !selected}
+            onClick={() => onConfirm(selected === '' ? null : Number(selected))}
           >
-            Reassign &amp; Delete
+            {confirmLabel}
           </button>
         </div>
       </div>

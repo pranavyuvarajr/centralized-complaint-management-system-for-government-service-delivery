@@ -28,7 +28,7 @@ export default function ComplaintCard({ complaint, basePath = '' }) {
       <div className="complaint-card__meta">
         <span>📁 {complaint.category}</span>
         {complaint.departmentName && <span>🏢 {complaint.departmentName}</span>}
-        {complaint.location && <span>📍 {complaint.location}</span>}
+        {complaint.resolvedAddress && <span>📍 {complaint.resolvedAddress}</span>}
         <span>{new Date(complaint.createdAt).toLocaleDateString()}</span>
       </div>
     </div>

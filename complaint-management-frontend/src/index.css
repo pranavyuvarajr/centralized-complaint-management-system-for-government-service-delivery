@@ -543,3 +543,88 @@ tr:hover td { background: var(--c-primary-light); }
   .stats-grid { grid-template-columns: 1fr; }
   .notif__panel { width: calc(100vw - 24px); right: -50px; }
 }
+
+/* ===== Location picker (complaint form) ===== */
+.lp { position: relative; }
+.lp__toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; align-items: flex-start; }
+.lp__toolbar .btn { white-space: nowrap; }
+.lp__search { position: relative; flex: 1 1 260px; min-width: 0; }
+.lp__search .form-control { padding-right: 34px; }
+.lp__clear-search {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  background: none; border: 0; cursor: pointer; font-size: 1.25rem; line-height: 1;
+  color: var(--c-text-faint); padding: 2px 6px;
+}
+.lp__clear-search:hover { color: var(--c-text); }
+.lp__results {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 30; margin-top: 4px;
+  list-style: none; max-height: 300px; overflow-y: auto;
+  background: var(--c-surface); border: 1px solid var(--c-border);
+  border-radius: var(--radius); box-shadow: var(--shadow-md);
+}
+.lp__note { padding: 10px 14px; font-size: 0.82rem; color: var(--c-text-light); }
+.lp__note--error { color: var(--c-danger); }
+.lp__result { display: flex; gap: 10px; align-items: flex-start; padding: 9px 14px; cursor: pointer; border-bottom: 1px solid var(--c-border); }
+.lp__result:last-child { border-bottom: 0; }
+.lp__result--active { background: var(--c-primary-light); }
+.lp__result-icon { flex: none; font-size: 1.05rem; line-height: 1.4; }
+.lp__result-text { display: flex; flex-direction: column; min-width: 0; }
+.lp__result-name { font-size: 0.875rem; font-weight: 600; color: var(--c-text); overflow-wrap: anywhere; }
+.lp__result-sub { font-size: 0.75rem; color: var(--c-text-light); overflow-wrap: anywhere; }
+.lp__msg { font-size: 0.8rem; padding: 8px 12px; border-radius: var(--radius); margin-bottom: 8px; border: 1px solid transparent; }
+.lp__msg--info { background: var(--c-info-bg); color: #1c4a75; border-color: #bcd7f0; }
+.lp__msg--error { background: var(--c-danger-bg); color: var(--c-danger); border-color: #f0c4be; }
+.lp__status {
+  display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap;
+  font-size: 0.82rem; color: var(--c-text-light); background: var(--c-bg);
+  border: 1px dashed var(--c-border); border-radius: var(--radius); padding: 8px 12px; margin-bottom: 8px;
+}
+.lp__status--set { background: var(--c-success-bg); border: 1px solid #bfe5cf; color: var(--c-text); }
+.lp__status-main { display: flex; flex-direction: column; min-width: 0; }
+.lp__status-main strong { font-size: 0.85rem; overflow-wrap: anywhere; }
+.lp__status-sub { font-size: 0.72rem; color: var(--c-text-light); }
+.lp__sizes { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.lp__sizes-label { font-size: 0.75rem; color: var(--c-text-faint); margin-right: 2px; }
+.lp__map {
+  position: relative; z-index: 0; isolation: isolate; width: 100%;
+  border: 1px solid var(--c-border); border-radius: var(--radius); overflow: hidden;
+}
+.lp--fullscreen {
+  position: fixed; inset: 0; z-index: 1500; background: var(--c-surface);
+  padding: 12px; display: flex; flex-direction: column;
+}
+.lp--fullscreen .lp__map { flex: 1; min-height: 0; height: auto; }
+
+/* ===== Attachment groups (complaint details) ===== */
+.att-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; align-items: start; }
+.att-group__title {
+  font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700;
+  color: var(--c-text-light); margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--c-border);
+}
+.att-group--completion .att-group__title { color: var(--c-success); }
+.att-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 210px)); gap: 14px; }
+.att-card {
+  display: flex; flex-direction: column; gap: 10px; padding: 8px; min-width: 0;
+  background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius);
+}
+.att-thumb {
+  display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover;
+  border-radius: 6px; background: var(--c-bg); cursor: zoom-in;
+}
+.att-thumb--placeholder {
+  display: flex; align-items: center; justify-content: center; cursor: default;
+  font-size: 0.78rem; color: var(--c-text-faint); border: 1px dashed var(--c-border);
+}
+.att-thumb__ext { font-size: 1.1rem; font-weight: 700; letter-spacing: 0.06em; color: var(--c-text-light); }
+.att-info { min-width: 0; padding: 0 2px; }
+.att-name { font-size: 0.8rem; font-weight: 600; color: var(--c-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att-meta { font-size: 0.72rem; color: var(--c-text-light); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att-actions { display: flex; gap: 6px; margin-top: auto; }
+.att-actions .btn { flex: 1; justify-content: center; }
+
+/* ===== Location picker map pin (inline SVG marker) ===== */
+.lp-pin { background: none; border: 0; }
+.lp-pin svg { display: block; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35)); cursor: grab; }
+.lp-pin:active svg { cursor: grabbing; }
+.lp-pin__body { fill: var(--c-danger); stroke: #fff; stroke-width: 1.6; }
+.lp-pin__dot { fill: #fff; }

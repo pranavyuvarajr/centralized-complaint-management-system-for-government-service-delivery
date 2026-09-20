@@ -3,6 +3,7 @@ package com.project.complaint.controller;
 import com.project.complaint.dto.AttachmentDto;
 import com.project.complaint.entity.ComplaintAttachment;
 import com.project.complaint.service.AttachmentService;
+import com.project.complaint.service.AuditLogService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
@@ -19,6 +20,7 @@ import java.util.List;
 public class AttachmentController {
 
     private final AttachmentService attachmentService;
+    private final AuditLogService auditLogService;
 
     private String roleOf(Authentication auth) {
         return auth.getAuthorities().iterator().next().getAuthority().replace("ROLE_", "");
@@ -28,7 +30,10 @@ public class AttachmentController {
     public ResponseEntity<AttachmentDto.Response> upload(@PathVariable Long complaintId,
                                                            @RequestParam("file") MultipartFile file,
                                                            Authentication auth) {
-        return ResponseEntity.ok(attachmentService.upload(complaintId, auth.getName(), roleOf(auth), file));
+        AttachmentDto.Response saved = attachmentService.upload(complaintId, auth.getName(), roleOf(auth), file);
+        auditLogService.logByEmail(auth.getName(), "ATTACHMENT_UPLOADED", "Complaint", complaintId,
+                roleOf(auth) + " uploaded file \"" + saved.getOriginalFileName() + "\" to complaint #" + complaintId);
+        return ResponseEntity.ok(saved);
     }
 
     @GetMapping("/api/complaints/{complaintId}/attachments")

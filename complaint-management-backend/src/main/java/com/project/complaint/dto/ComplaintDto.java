@@ -16,7 +16,11 @@ public class ComplaintDto {
         private String description;
         @NotBlank
         private String category;
-        private String location;
+        // Fallback map-pin coordinates, used only when the submitted photo has
+        // no GPS EXIF data of its own. Ignored (server prefers the photo's own
+        // GPS) when the photo does carry a usable GPS tag.
+        private Double latitude;
+        private Double longitude;
     }
 
     @Getter @Setter @NoArgsConstructor @AllArgsConstructor
@@ -39,7 +43,9 @@ public class ComplaintDto {
         private String title;
         private String description;
         private String category;
-        private String location;
+        private Double latitude;
+        private Double longitude;
+        private String resolvedAddress;
         private String priority;
         private String status;
         private String resolutionInfo;
@@ -54,6 +60,9 @@ public class ComplaintDto {
         private LocalDateTime resolvedAt;
         private LocalDateTime closedAt;
         private List<HistoryResponse> history;
+        // Whether marking this complaint resolved needs a completion photo (mirrors the
+        // category's photo rule). Only filled in for single-complaint responses, null in lists.
+        private Boolean completionPhotoRequired;
     }
 
     @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder

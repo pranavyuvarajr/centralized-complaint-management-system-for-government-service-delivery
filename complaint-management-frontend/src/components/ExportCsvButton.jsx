@@ -9,7 +9,7 @@ const DEFAULT_COLUMNS = [
   { key: 'departmentName', label: 'Department' },
   { key: 'assignedOfficialName', label: 'Assigned Official' },
   { key: 'citizenName', label: 'Citizen' },
-  { key: 'location', label: 'Location' },
+  { key: 'resolvedAddress', label: 'Location' },
   { key: 'createdAt', label: 'Submitted At' },
 ];
 

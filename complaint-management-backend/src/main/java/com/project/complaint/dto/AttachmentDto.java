@@ -12,5 +12,10 @@ public class AttachmentDto {
         private String contentType;
         private Long fileSize;
         private LocalDateTime uploadedAt;
+        // EVIDENCE | COMPLETION | REOPEN
+        private String kind;
+        // Null for attachments uploaded before this was tracked
+        private String uploadedByName;
+        private String uploadedByRole;
     }
 }

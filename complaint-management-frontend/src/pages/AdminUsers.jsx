@@ -3,6 +3,7 @@ import { adminAPI, departmentAPI } from '../services/api';
 import ActionMenu from '../components/ActionMenu';
 import ReassignModal from '../components/ReassignModal';
 import SetPasswordModal from '../components/SetPasswordModal';
+import EditUserModal from '../components/EditUserModal';
 
 export default function AdminUsers() {
   const [users, setUsers] = useState([]);
@@ -15,6 +16,10 @@ export default function AdminUsers() {
   const [loading, setLoading] = useState(true);
   const [reassignState, setReassignState] = useState(null); // { user, message, options }
   const [passwordUser, setPasswordUser] = useState(null);
+  const [editUser, setEditUser] = useState(null);
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [editError, setEditError] = useState('');
+  const [editReassign, setEditReassign] = useState(null); // { payload, message, options }
 
   const load = () => {
     setLoading(true);
@@ -75,6 +80,40 @@ export default function AdminUsers() {
     }
   };
 
+  const openEdit = (user) => {
+    setEditError('');
+    setEditReassign(null);
+    setEditUser(user);
+  };
+
+  const closeEdit = () => {
+    setEditUser(null);
+    setEditReassign(null);
+    setEditError('');
+  };
+
+  // extra: { reassignTo } or { unassignComplaints: true }, sent on the retry after the
+  // server says an official's active complaints need a new owner before moving department.
+  const submitEdit = async (payload, extra = {}) => {
+    setEditSubmitting(true);
+    setEditError('');
+    try {
+      await adminAPI.updateUser(editUser.id, { ...payload, ...extra });
+      closeEdit();
+      load();
+    } catch (err) {
+      const data = err.response?.data;
+      if (data?.requiresReassignment) {
+        setEditReassign({ payload, message: data.error, options: data.options || [] });
+      } else {
+        setEditReassign(null);
+        setEditError(data?.error || 'Failed to update user.');
+      }
+    } finally {
+      setEditSubmitting(false);
+    }
+  };
+
   const handleSetPassword = async (newPassword, adminCurrentPassword) => {
     await adminAPI.resetPassword(passwordUser.id, newPassword, adminCurrentPassword);
     setPasswordUser(null);
@@ -106,8 +145,10 @@ export default function AdminUsers() {
                 <input type="email" className="form-control" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
               </div>
               <div className="form-group">
-                <label>Phone</label>
-                <input className="form-control" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+                <label>Mobile Number</label>
+                <input type="tel" inputMode="tel" className="form-control" required maxLength={17}
+                  placeholder="10-digit mobile number"
+                  value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
               </div>
               <div className="form-group">
                 <label>Temporary Password</label>
@@ -159,6 +200,7 @@ export default function AdminUsers() {
                     <td><span className={`badge ${u.active ? 'badge--resolved' : 'badge--rejected'}`}>{u.active ? 'Active' : 'Inactive'}</span></td>
                     <td>
                       <ActionMenu items={[
+                        { label: 'Edit', onClick: () => openEdit(u) },
                         { label: u.active ? 'Deactivate' : 'Activate', onClick: () => toggleActive(u) },
                         { label: 'Change Password', onClick: () => setPasswordUser(u) },
                         { label: 'Delete', danger: true, onClick: () => deleteUser(u) },
@@ -179,6 +221,31 @@ export default function AdminUsers() {
           options={reassignState.options}
           onCancel={() => setReassignState(null)}
           onConfirm={(targetId) => deleteUser(reassignState.user, targetId)}
+        />
+      )}
+
+      {editUser && (
+        <EditUserModal
+          user={editUser}
+          departments={departments}
+          submitting={editSubmitting}
+          error={editError}
+          onSave={(payload) => submitEdit(payload)}
+          onCancel={closeEdit}
+        />
+      )}
+
+      {editUser && editReassign && (
+        <ReassignModal
+          title={`Hand over ${editUser.name}'s complaints`}
+          message={editReassign.message}
+          options={editReassign.options}
+          label="Hand over to"
+          confirmLabel="Hand Over & Move"
+          noneLabel="Leave them unassigned"
+          onCancel={() => setEditReassign(null)}
+          onConfirm={(targetId) =>
+            submitEdit(editReassign.payload, targetId ? { reassignTo: targetId } : { unassignComplaints: true })}
         />
       )}
 

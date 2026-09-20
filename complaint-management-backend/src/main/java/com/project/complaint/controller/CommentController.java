@@ -1,6 +1,7 @@
 package com.project.complaint.controller;
 
 import com.project.complaint.dto.CommentDto;
+import com.project.complaint.service.AuditLogService;
 import com.project.complaint.service.CommentService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +17,7 @@ import java.util.List;
 public class CommentController {
 
     private final CommentService commentService;
+    private final AuditLogService auditLogService;
 
     private String roleOf(Authentication auth) {
         return auth.getAuthorities().iterator().next().getAuthority().replace("ROLE_", "");
@@ -29,6 +31,9 @@ public class CommentController {
     @PostMapping
     public ResponseEntity<CommentDto.Response> addComment(@PathVariable Long complaintId, Authentication auth,
                                                             @Valid @RequestBody CommentDto.CreateRequest request) {
-        return ResponseEntity.ok(commentService.addComment(complaintId, auth.getName(), roleOf(auth), request));
+        CommentDto.Response saved = commentService.addComment(complaintId, auth.getName(), roleOf(auth), request);
+        auditLogService.logByEmail(auth.getName(), "COMMENT_ADDED", "Complaint", complaintId,
+                saved.getAuthorRole() + " " + saved.getAuthorName() + " added a message on complaint #" + complaintId);
+        return ResponseEntity.ok(saved);
     }
 }

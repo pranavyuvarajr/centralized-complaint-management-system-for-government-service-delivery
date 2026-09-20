@@ -11,14 +11,18 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -27,12 +31,22 @@ import java.util.stream.Collectors;
 @Transactional(readOnly = true)
 public class ComplaintService {
 
+    private static final Set<ComplaintStatus> FINAL_STATUSES =
+            Set.of(ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED, ComplaintStatus.REJECTED);
+
     private final ComplaintRepository complaintRepository;
     private final ComplaintHistoryRepository historyRepository;
+    private final ComplaintCategoryRepository categoryRepository;
     private final UserRepository userRepository;
     private final DepartmentRepository departmentRepository;
     private final NotificationService notificationService;
     private final AuditLogService auditLogService;
+    private final AttachmentService attachmentService;
+    private final GeoLocationService geoLocationService;
+    private final ComplaintCommentRepository commentRepository;
+    private final FeedbackRepository feedbackRepository;
+    private final NotificationRepository notificationRepository;
+    private final PasswordEncoder passwordEncoder;
 
     private static final Map<ComplaintStatus, Set<ComplaintStatus>> ALLOWED_TRANSITIONS = Map.of(
             ComplaintStatus.SUBMITTED, Set.of(ComplaintStatus.UNDER_REVIEW, ComplaintStatus.REJECTED),
@@ -44,17 +58,81 @@ public class ComplaintService {
             ComplaintStatus.REJECTED, Set.of()
     );
 
+    /**
+     * Creates a complaint. Photo and location are independent of each other:
+     * <ul>
+     *   <li>A photo is only mandatory when the chosen category was configured by
+     *   an admin to require one (see {@link ComplaintCategory#isImageRequired()}).</li>
+     *   <li>A location (coordinates from the map pin, address search or the
+     *   device's current location) is only mandatory when the category requires
+     *   it (see {@link ComplaintCategory#isLocationRequired()}). When it is
+     *   optional and none is sent, the complaint is saved without one. When
+     *   coordinates are sent they are always validated and used, whether or not
+     *   the category requires them. The photo's own GPS tags are never used.</li>
+     * </ul>
+     * <p>
+     * If the chosen category has an auto-routing department configured, the
+     * complaint is immediately routed to that department and handed to
+     * whichever active official there currently has the fewest ongoing
+     * complaints — admin can still reassign it manually at any time
+     * afterward, same as any other complaint.
+     */
     @Transactional
-    public ComplaintDto.Response createComplaint(String email, ComplaintDto.CreateRequest request) {
+    public ComplaintDto.Response createComplaint(String email, ComplaintDto.CreateRequest request, MultipartFile photo) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
+        validateBasics(request);
+
+        Optional<ComplaintCategory> categoryEntity = categoryRepository.findByName(request.getCategory());
+        // Categories created before this setting existed, or an unrecognized
+        // category name, default to requiring a photo - the previous behavior.
+        boolean imageRequired = categoryEntity.map(ComplaintCategory::isImageRequired).orElse(true);
+        boolean locationRequired = categoryEntity.map(ComplaintCategory::isLocationRequired).orElse(true);
+
+        boolean hasPhoto = photo != null && !photo.isEmpty();
+        if (imageRequired && !hasPhoto) {
+            throw new RuntimeException("A photo of the issue is required for the \"" + request.getCategory() + "\" category.");
+        }
+        if (hasPhoto) {
+            if (photo.getSize() > 5L * 1024 * 1024) {
+                throw new RuntimeException("Photo exceeds the 5MB size limit");
+            }
+            if (photo.getContentType() == null || !(photo.getContentType().equals("image/jpeg")
+                    || photo.getContentType().equals("image/png"))) {
+                throw new RuntimeException("Only JPG or PNG photos are allowed");
+            }
+        }
+
+        // Location comes only from what the citizen marked (map pin, search or
+        // current location) — never from the photo.
+        Double latitude = null;
+        Double longitude = null;
+        String resolvedAddress = null;
+        boolean locationSent = request.getLatitude() != null || request.getLongitude() != null;
+        if (locationSent) {
+            if (!geoLocationService.isValidCoordinate(request.getLatitude(), request.getLongitude())) {
+                throw new RuntimeException(
+                        "The selected location is not valid. Search for an address, use your current location, "
+                                + "or drop a pin on the map again.");
+            }
+            latitude = request.getLatitude();
+            longitude = request.getLongitude();
+            resolvedAddress = geoLocationService.reverseGeocode(latitude, longitude);
+        } else if (locationRequired) {
+            throw new RuntimeException(
+                    "A location is required for the \"" + request.getCategory() + "\" category. Search for an address, "
+                            + "use your current location, or drop a pin on the map to mark where the issue is.");
+        }
+
         Complaint complaint = Complaint.builder()
                 .user(user)
-                .title(request.getTitle())
-                .description(request.getDescription())
+                .title(request.getTitle().trim())
+                .description(request.getDescription().trim())
                 .category(request.getCategory())
-                .location(request.getLocation())
+                .latitude(latitude)
+                .longitude(longitude)
+                .resolvedAddress(resolvedAddress)
                 .status(ComplaintStatus.SUBMITTED)
                 .priority(Priority.MEDIUM)
                 .build();
@@ -71,9 +149,91 @@ public class ComplaintService {
                 .build());
 
         auditLogService.log(user, "COMPLAINT_SUBMITTED", "Complaint", complaint.getId(),
-                "Citizen submitted complaint " + complaint.getComplaintNumber());
+                "Citizen submitted complaint " + complaint.getComplaintNumber()
+                        + (resolvedAddress != null ? " at \"" + resolvedAddress + "\"" : " (no location provided)")
+                        + (hasPhoto ? " with a photo attached" : " (no photo attached)"));
+
+        // Attach the evidence photo, if one was provided. Runs inside the same
+        // transaction, so if this fails the whole complaint creation rolls back.
+        if (hasPhoto) {
+            attachmentService.upload(complaint.getId(), email, "CITIZEN", photo);
+        }
+
+        complaint = autoRouteComplaint(complaint, user);
 
         return mapToResponse(complaint);
+    }
+
+    private void validateBasics(ComplaintDto.CreateRequest request) {
+        String title = request.getTitle() == null ? "" : request.getTitle().trim();
+        if (title.length() < 5 || title.length() > 150) {
+            throw new RuntimeException("Title must be between 5 and 150 characters");
+        }
+        String description = request.getDescription() == null ? "" : request.getDescription().trim();
+        if (description.length() < 20) {
+            throw new RuntimeException("Description must be at least 20 characters");
+        }
+        if (request.getCategory() == null || request.getCategory().isBlank()) {
+            throw new RuntimeException("Category is required");
+        }
+    }
+
+    /**
+     * Auto-assigns a freshly submitted complaint to its category's linked
+     * department and least-busy active official, if one is configured and
+     * available. Silently leaves the complaint unassigned (same as before)
+     * when the category has no department mapping or no eligible official —
+     * nothing here is a hard requirement.
+     */
+    private Complaint autoRouteComplaint(Complaint complaint, User citizen) {
+        Optional<ComplaintCategory> category = categoryRepository.findByName(complaint.getCategory());
+        if (category.isEmpty() || category.get().getDepartment() == null) {
+            return complaint;
+        }
+        Department department = category.get().getDepartment();
+        if (!department.isActive()) {
+            return complaint;
+        }
+
+        List<User> officials = userRepository.findByDepartmentId(department.getId()).stream()
+                .filter(u -> u.getRole() == Role.OFFICIAL && u.isActive())
+                .collect(Collectors.toList());
+        if (officials.isEmpty()) {
+            return complaint;
+        }
+
+        User leastBusy = officials.stream()
+                .min(Comparator
+                        .comparingLong((User o) -> complaintRepository
+                                .countByAssignedOfficialIdAndStatusNotIn(o.getId(), List.copyOf(FINAL_STATUSES)))
+                        .thenComparing(User::getId))
+                .orElseThrow();
+
+        complaint.setDepartment(department);
+        complaint.setAssignedOfficial(leastBusy);
+        complaint.setStatus(ComplaintStatus.ASSIGNED);
+        complaint = complaintRepository.save(complaint);
+
+        String remarks = "Auto-assigned to " + department.getName() + " (" + leastBusy.getName()
+                + ") based on category \"" + complaint.getCategory() + "\"";
+        historyRepository.save(ComplaintHistory.builder()
+                .complaint(complaint)
+                .status(ComplaintStatus.ASSIGNED)
+                .remarks(remarks)
+                .updatedBy("System (auto-routing)")
+                .build());
+
+        notificationService.notify(citizen,
+                "Your complaint " + complaint.getComplaintNumber() + " has been automatically routed to "
+                        + department.getName() + ".",
+                complaint.getId());
+        notificationService.notify(leastBusy,
+                "Complaint " + complaint.getComplaintNumber() + " has been auto-assigned to you.",
+                complaint.getId());
+
+        auditLogService.log(citizen, "COMPLAINT_AUTO_ASSIGNED", "Complaint", complaint.getId(), remarks);
+
+        return complaint;
     }
 
     public PageResponse<ComplaintDto.Response> getComplaints(String email, String role, int page, int limit,
@@ -117,7 +277,7 @@ public class ComplaintService {
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
         checkAccess(complaint, user, role);
-        return mapToResponse(complaint);
+        return withCompletionFlag(mapToResponse(complaint), complaint);
     }
 
     public ComplaintDto.TrackResponse trackByNumber(String complaintNumber) {
@@ -141,6 +301,17 @@ public class ComplaintService {
                 .build();
     }
 
+    /**
+     * Staff (official of the complaint's department, or admin) moves a
+     * complaint along its status chain. Two rules matter here:
+     * <ul>
+     *   <li>Resolving a complaint whose category requires a photo must go through
+     *   {@link #resolveComplaint}, which takes the completion photo in the same
+     *   request; it is refused here so the photo rule can't be bypassed.</li>
+     *   <li>Only the citizen who filed a complaint can close it (from their own
+     *   complaint page), so nobody on staff can end the citizen's chance to reopen it.</li>
+     * </ul>
+     */
     @Transactional
     public ComplaintDto.Response updateComplaintStatus(Long id, String email, String role,
                                                         ComplaintDto.StatusUpdateRequest request) {
@@ -149,33 +320,102 @@ public class ComplaintService {
         User updater = userRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
-        if (role.equals("OFFICIAL")) {
+        requireStaffAccess(complaint, updater, role);
+
+        ComplaintStatus next = request.getStatus();
+        requireAllowedTransition(complaint.getStatus(), next);
+
+        if (next == ComplaintStatus.CLOSED) {
+            throw new RuntimeException("Only the citizen who filed this complaint can close it, from their own complaint page.");
+        }
+        if (next == ComplaintStatus.RESOLVED && completionPhotoRequired(complaint)) {
+            throw new RuntimeException("The \"" + complaint.getCategory() + "\" category requires a completion photo. "
+                    + "Use the Resolve action and upload a photo of the finished work.");
+        }
+
+        complaint = applyStatusChange(complaint, updater, next, request.getRemarks(), request.getResolutionInfo(), false);
+        return withCompletionFlag(mapToResponse(complaint), complaint);
+    }
+
+    /**
+     * Marks a complaint RESOLVED together with a completion photo, in one
+     * transaction. The photo is required whenever the category requires a photo
+     * from the citizen (the same setting), for officials and admins alike; when
+     * the category doesn't require one it is optional. Everything except the
+     * photo (transition check, history, notification, audit) is the shared
+     * status-change logic, so both routes behave identically.
+     */
+    @Transactional
+    public ComplaintDto.Response resolveComplaint(Long id, String email, String role,
+                                                   String remarks, String resolutionInfo, MultipartFile photo) {
+        Complaint complaint = complaintRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Complaint not found"));
+        User updater = userRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        requireStaffAccess(complaint, updater, role);
+        requireAllowedTransition(complaint.getStatus(), ComplaintStatus.RESOLVED);
+
+        boolean hasPhoto = photo != null && !photo.isEmpty();
+        if (!hasPhoto && completionPhotoRequired(complaint)) {
+            throw new RuntimeException("A completion photo is required for the \"" + complaint.getCategory()
+                    + "\" category before this complaint can be marked resolved.");
+        }
+        if (hasPhoto) {
+            attachmentService.validatePhoto(photo); // reject a bad file before changing anything
+        }
+
+        complaint = applyStatusChange(complaint, updater, ComplaintStatus.RESOLVED, remarks, resolutionInfo, hasPhoto);
+        if (hasPhoto) {
+            attachmentService.addPhoto(complaint, updater, AttachmentKind.COMPLETION, photo);
+        }
+        return withCompletionFlag(mapToResponse(complaint), complaint);
+    }
+
+    /** Only admins, or officials of the complaint's own department, may change a complaint's status. */
+    private void requireStaffAccess(Complaint complaint, User updater, String role) {
+        if (!"OFFICIAL".equals(role) && !"ADMIN".equals(role)) {
+            throw new RuntimeException("You are not authorized to update this complaint");
+        }
+        if ("OFFICIAL".equals(role)) {
             if (complaint.getDepartment() == null || updater.getDepartment() == null
                     || !complaint.getDepartment().getId().equals(updater.getDepartment().getId())) {
                 throw new RuntimeException("You are not authorized to update this complaint");
             }
         }
+    }
 
-        ComplaintStatus current = complaint.getStatus();
-        ComplaintStatus next = request.getStatus();
+    private void requireAllowedTransition(ComplaintStatus current, ComplaintStatus next) {
         Set<ComplaintStatus> allowed = ALLOWED_TRANSITIONS.getOrDefault(current, Set.of());
-        if (!allowed.contains(next)) {
+        if (next == null || !allowed.contains(next)) {
             throw new RuntimeException("Cannot change status from " + current + " to " + next);
         }
+    }
+
+    /** The one place a status change is applied: status, dates, history, citizen notification, audit log. */
+    private Complaint applyStatusChange(Complaint complaint, User updater, ComplaintStatus next,
+                                        String remarks, String resolutionInfo, boolean photoAttached) {
+        ComplaintStatus current = complaint.getStatus();
 
         complaint.setStatus(next);
-        if (request.getResolutionInfo() != null && !request.getResolutionInfo().isBlank()) {
-            complaint.setResolutionInfo(request.getResolutionInfo());
+        if (resolutionInfo != null && !resolutionInfo.isBlank()) {
+            complaint.setResolutionInfo(resolutionInfo);
         }
         if (next == ComplaintStatus.RESOLVED) complaint.setResolvedAt(LocalDateTime.now());
         if (next == ComplaintStatus.CLOSED) complaint.setClosedAt(LocalDateTime.now());
 
         complaint = complaintRepository.save(complaint);
 
+        String historyRemarks = remarks;
+        if (photoAttached) {
+            historyRemarks = (remarks == null || remarks.isBlank())
+                    ? "Completion photo attached"
+                    : remarks + " (completion photo attached)";
+        }
         historyRepository.save(ComplaintHistory.builder()
                 .complaint(complaint)
                 .status(next)
-                .remarks(request.getRemarks())
+                .remarks(historyRemarks)
                 .updatedBy(updater.getName())
                 .build());
 
@@ -184,13 +424,41 @@ public class ComplaintService {
                 complaint.getId());
 
         auditLogService.log(updater, "STATUS_UPDATED", "Complaint", complaint.getId(),
-                "Status changed from " + current + " to " + next);
+                "Status changed from " + current + " to " + next + (photoAttached ? " with a completion photo" : ""));
 
-        return mapToResponse(complaint);
+        return complaint;
+    }
+
+    /**
+     * Whether resolving this complaint needs a completion photo: the same
+     * setting as the citizen's photo (unknown category -> required, matching
+     * how filing treats it).
+     */
+    private boolean completionPhotoRequired(Complaint complaint) {
+        return categoryRepository.findByName(complaint.getCategory())
+                .map(ComplaintCategory::isImageRequired)
+                .orElse(true);
+    }
+
+    private ComplaintDto.Response withCompletionFlag(ComplaintDto.Response response, Complaint complaint) {
+        response.setCompletionPhotoRequired(completionPhotoRequired(complaint));
+        return response;
     }
 
     @Transactional
     public ComplaintDto.Response reopenComplaint(Long id, String email, String reason) {
+        return reopenComplaint(id, email, reason, null);
+    }
+
+    /**
+     * The citizen reopens their own RESOLVED complaint. A reason is required so
+     * the department knows what's still wrong, and a photo can be added to show
+     * it. Earlier photos (including the completion photo) are kept; resolving
+     * again requires a fresh completion photo because resolving always goes
+     * through {@link #resolveComplaint}.
+     */
+    @Transactional
+    public ComplaintDto.Response reopenComplaint(Long id, String email, String reason, MultipartFile photo) {
         Complaint complaint = complaintRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Complaint not found"));
         User user = userRepository.findByEmail(email)
@@ -202,6 +470,14 @@ public class ComplaintService {
         if (complaint.getStatus() != ComplaintStatus.RESOLVED) {
             throw new RuntimeException("Only resolved complaints can be reopened");
         }
+        String cleanReason = reason == null ? "" : reason.trim();
+        if (cleanReason.length() < 10) {
+            throw new RuntimeException("Please explain why you are reopening this complaint (at least 10 characters).");
+        }
+        boolean hasPhoto = photo != null && !photo.isEmpty();
+        if (hasPhoto) {
+            attachmentService.validatePhoto(photo);
+        }
 
         complaint.setStatus(ComplaintStatus.IN_PROGRESS);
         complaint.setResolvedAt(null);
@@ -210,9 +486,12 @@ public class ComplaintService {
         historyRepository.save(ComplaintHistory.builder()
                 .complaint(complaint)
                 .status(ComplaintStatus.IN_PROGRESS)
-                .remarks("Reopened by citizen" + (reason != null && !reason.isBlank() ? ": " + reason : ""))
+                .remarks("Reopened by citizen: " + cleanReason + (hasPhoto ? " (photo attached)" : ""))
                 .updatedBy(user.getName())
                 .build());
+        if (hasPhoto) {
+            attachmentService.addPhoto(complaint, user, AttachmentKind.REOPEN, photo);
+        }
 
         if (complaint.getAssignedOfficial() != null) {
             notificationService.notify(complaint.getAssignedOfficial(),
@@ -220,7 +499,11 @@ public class ComplaintService {
                     complaint.getId());
         }
 
-        return mapToResponse(complaint);
+        auditLogService.log(user, "COMPLAINT_REOPENED", "Complaint", complaint.getId(),
+                "Citizen reopened complaint " + complaint.getComplaintNumber() + " with reason: " + cleanReason
+                        + (hasPhoto ? " (photo attached)" : ""));
+
+        return withCompletionFlag(mapToResponse(complaint), complaint);
     }
 
     @Transactional
@@ -247,6 +530,9 @@ public class ComplaintService {
                 .remarks("Closed by citizen")
                 .updatedBy(user.getName())
                 .build());
+
+        auditLogService.log(user, "COMPLAINT_CLOSED", "Complaint", complaint.getId(),
+                "Citizen closed complaint " + complaint.getComplaintNumber());
 
         return mapToResponse(complaint);
     }
@@ -324,6 +610,45 @@ public class ComplaintService {
                 "Priority changed from " + old + " to " + priority);
 
         return mapToResponse(complaint);
+    }
+
+    /**
+     * Permanently deletes a complaint together with everything that belongs
+     * to it: status history, messages, feedback, attachments (records and
+     * stored files) and the notifications that pointed at it.
+     * <p>
+     * This can't be undone, so the admin performing it must re-enter their
+     * own password as a confirmation - same safeguard as the admin
+     * password-reset action. The action is written to the audit log (which
+     * keeps a plain-text summary, since the complaint itself no longer exists).
+     */
+    @Transactional
+    public void deleteComplaint(Long id, String adminEmail, String adminPassword) {
+        User admin = userRepository.findByEmail(adminEmail)
+                .orElseThrow(() -> new RuntimeException("Admin account not found"));
+        if (adminPassword == null || adminPassword.isEmpty()
+                || !passwordEncoder.matches(adminPassword, admin.getPassword())) {
+            throw new IllegalStateException("Incorrect password. The complaint was not deleted.");
+        }
+
+        Complaint complaint = complaintRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Complaint not found"));
+
+        String summary = complaint.getComplaintNumber() + " \"" + complaint.getTitle() + "\" (status "
+                + complaint.getStatus() + ", filed by " + complaint.getUser().getName()
+                + " <" + complaint.getUser().getEmail() + ">)";
+
+        // Children first, then the complaint itself (its status history is
+        // removed by the cascade on Complaint.history).
+        notificationRepository.deleteAllByComplaintId(id);
+        commentRepository.deleteAllByComplaintId(id);
+        feedbackRepository.findByComplaintId(id).ifPresent(feedbackRepository::delete);
+        attachmentService.deleteAllForComplaint(id);
+        complaintRepository.delete(complaint);
+        complaintRepository.flush();
+
+        auditLogService.log(admin, "COMPLAINT_DELETED", "Complaint", id,
+                "Admin permanently deleted complaint " + summary);
     }
 
     public List<ComplaintDto.HistoryResponse> getComplaintHistory(Long complaintId) {
@@ -439,7 +764,9 @@ public class ComplaintService {
                 .title(c.getTitle())
                 .description(c.getDescription())
                 .category(c.getCategory())
-                .location(c.getLocation())
+                .latitude(c.getLatitude())
+                .longitude(c.getLongitude())
+                .resolvedAddress(c.getResolvedAddress())
                 .priority(c.getPriority() != null ? c.getPriority().name() : Priority.MEDIUM.name())
                 .status(c.getStatus().name())
                 .resolutionInfo(c.getResolutionInfo())

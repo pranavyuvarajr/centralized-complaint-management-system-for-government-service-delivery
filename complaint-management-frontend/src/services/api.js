@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE = 'https://152.67.3.122';
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
 const api = axios.create({
   baseURL: API_BASE + '/api',
@@ -36,13 +36,45 @@ export const authAPI = {
 
 // --- Complaints ---
 export const complaintAPI = {
-  create: (data) => api.post('/complaints', data),
+  // data: { title, description, category, latitude, longitude, photo? }
+  // Location (latitude/longitude) is required or optional depending on the category. photo is only
+  // required when the chosen category has imageRequired=true — the server
+  // prefers GPS read straight out of the photo, when one is attached and
+  // carries a GPS tag, over the map-picked coordinates.
+  create: (data) => {
+    const form = new FormData();
+    form.append('title', data.title);
+    form.append('description', data.description);
+    form.append('category', data.category);
+    if (data.latitude != null) form.append('latitude', data.latitude);
+    if (data.longitude != null) form.append('longitude', data.longitude);
+    if (data.photo) form.append('photo', data.photo);
+    return api.post('/complaints', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
   getAll: (params) => api.get('/complaints', { params }),
   getById: (id) => api.get(`/complaints/${id}`),
   track: (complaintNumber) => api.get(`/complaints/track/${complaintNumber}`),
   updateStatus: (id, data) => api.put(`/complaints/${id}/status`, data),
   updatePriority: (id, priority) => api.patch(`/complaints/${id}/priority`, { priority }),
-  reopen: (id, reason) => api.post(`/complaints/${id}/reopen`, { reason }),
+  // The reason is required by the server. With a photo it is sent as multipart, otherwise as JSON.
+  reopen: (id, reason, photo) => {
+    if (!photo) return api.post(`/complaints/${id}/reopen`, { reason });
+    const form = new FormData();
+    form.append('reason', reason);
+    form.append('photo', photo);
+    return api.post(`/complaints/${id}/reopen`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
+  },
+  // Staff: mark a complaint resolved together with the completion photo. The photo is required
+  // when the category requires a citizen photo (see complaint.completionPhotoRequired).
+  resolve: (id, { remarks, resolutionInfo, photo }) => {
+    const form = new FormData();
+    if (remarks) form.append('remarks', remarks);
+    if (resolutionInfo) form.append('resolutionInfo', resolutionInfo);
+    if (photo) form.append('photo', photo);
+    return api.post(`/complaints/${id}/resolve`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
+  },
   close: (id) => api.post(`/complaints/${id}/close`),
   getHistory: (id) => api.get(`/complaints/${id}/history`),
   citizenStats: () => api.get('/complaints/dashboard/citizen'),
@@ -93,6 +125,15 @@ export const departmentAPI = {
   remove: (id, reassignTo) => api.delete(`/departments/${id}`, { params: reassignTo ? { reassignTo } : {} }),
 };
 
+// --- Geocoding (location search for the complaint-form map picker) ---
+export const geocodeAPI = {
+  // lat/lon (optional) bias results toward where the user is looking. A 200 with [] means
+  // "no matches"; a 503 means the geocoding services are unreachable.
+  search: (q, { lat, lon, signal } = {}) =>
+    api.get('/geocode/search', { params: { q, ...(lat != null && lon != null ? { lat, lon } : {}) }, signal }),
+  reverse: (lat, lon, { signal } = {}) => api.get('/geocode/reverse', { params: { lat, lon }, signal }),
+};
+
 // --- Notifications ---
 export const notificationAPI = {
   getAll: () => api.get('/notifications'),
@@ -113,11 +154,14 @@ export const adminAPI = {
   getUsers: () => api.get('/admin/users'),
   getUsersByRole: (role) => api.get(`/admin/users/role/${role}`),
   createUser: (data) => api.post('/admin/users', data),
+  updateUser: (id, data) => api.put(`/admin/users/${id}`, data),
   setUserActive: (id, active) => api.patch(`/admin/users/${id}/active`, { active }),
   deleteUser: (id, reassignTo) => api.delete(`/admin/users/${id}`, { params: reassignTo ? { reassignTo } : {} }),
   resetPassword: (id, newPassword, adminCurrentPassword) =>
     api.patch(`/admin/users/${id}/password`, { newPassword, adminCurrentPassword }),
   assignComplaint: (id, data) => api.patch(`/admin/complaints/${id}/assign`, data),
+  // Permanent delete; the admin must confirm with their own password.
+  deleteComplaint: (id, adminPassword) => api.delete(`/admin/complaints/${id}`, { data: { adminPassword } }),
   updatePriority: (id, priority) => api.patch(`/admin/complaints/${id}/priority`, { priority }),
   getStats: () => api.get('/admin/stats'),
   getAuditLogs: (params) => api.get('/admin/audit-logs', { params }),

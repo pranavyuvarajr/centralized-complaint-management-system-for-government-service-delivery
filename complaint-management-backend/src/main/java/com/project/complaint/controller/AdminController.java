@@ -18,9 +18,11 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 @RestController
 @RequestMapping("/api/admin")
@@ -47,6 +49,32 @@ public class AdminController {
     @PostMapping("/users")
     public ResponseEntity<AuthDto.AuthResponse> createUser(@Valid @RequestBody AuthDto.RegisterRequest request) {
         return ResponseEntity.ok(authService.register(request));
+    }
+
+    @PutMapping("/users/{id}")
+    public ResponseEntity<UserDto.Response> updateUser(@PathVariable Long id,
+                                                        @Valid @RequestBody UserDto.AdminUpdateRequest request,
+                                                        Authentication auth) {
+        UserDto.Response before = userService.getUserById(id);
+        UserDto.Response after = userService.adminUpdateUser(id, request, auth.getName());
+
+        List<String> changes = new ArrayList<>();
+        if (!Objects.equals(before.getName(), after.getName())) {
+            changes.add("name \"" + before.getName() + "\" changed to \"" + after.getName() + "\"");
+        }
+        String oldPhone = before.getPhone() == null ? "" : before.getPhone();
+        String newPhone = after.getPhone() == null ? "" : after.getPhone();
+        if (!oldPhone.equals(newPhone)) {
+            changes.add("phone number updated");
+        }
+        if (!Objects.equals(before.getDepartmentId(), after.getDepartmentId())) {
+            changes.add("department changed from " + (before.getDepartmentName() != null ? before.getDepartmentName() : "none")
+                    + " to " + (after.getDepartmentName() != null ? after.getDepartmentName() : "none"));
+        }
+        auditLogService.logByEmail(auth.getName(), "USER_UPDATED", "User", id,
+                "Admin edited " + before.getName() + " (" + before.getEmail() + "): "
+                        + (changes.isEmpty() ? "no changes" : String.join("; ", changes)));
+        return ResponseEntity.ok(after);
     }
 
     @PatchMapping("/users/{id}/active")
@@ -88,6 +116,19 @@ public class AdminController {
     public ResponseEntity<ComplaintDto.Response> assignComplaint(
             @PathVariable Long id, @Valid @RequestBody ComplaintDto.AssignRequest request, Authentication auth) {
         return ResponseEntity.ok(complaintService.assignComplaint(id, request, auth.getName()));
+    }
+
+    /**
+     * Permanently deletes a complaint and all of its related data. The admin
+     * must confirm with their own password (sent in the request body).
+     */
+    @DeleteMapping("/complaints/{id}")
+    public ResponseEntity<Void> deleteComplaint(@PathVariable Long id,
+                                                 @RequestBody(required = false) Map<String, String> body,
+                                                 Authentication auth) {
+        String adminPassword = body != null ? body.get("adminPassword") : null;
+        complaintService.deleteComplaint(id, auth.getName(), adminPassword);
+        return ResponseEntity.noContent().build();
     }
 
     @PatchMapping("/complaints/{id}/priority")

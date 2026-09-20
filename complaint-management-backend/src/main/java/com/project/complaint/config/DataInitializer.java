@@ -28,7 +28,35 @@ public class DataInitializer implements CommandLineRunner {
     public void run(String... args) {
         seedCategories();
         Map<String, Department> departments = seedDepartments();
+        seedCategoryDepartmentMappings(departments);
         seedUsersAndComplaints(departments);
+    }
+
+    /**
+     * Wires up the default category -> department auto-routing map, so a
+     * fresh install auto-assigns complaints out of the box. Admins can
+     * change any of these later from the Categories screen — this only
+     * fills in a mapping that isn't already set.
+     */
+    private void seedCategoryDepartmentMappings(Map<String, Department> departments) {
+        Map<String, String> categoryToDepartment = Map.of(
+                "Water Supply", "Water Supply Department",
+                "Electricity", "Electricity Department",
+                "Roads and Infrastructure", "Public Works Department",
+                "Drainage", "Public Works Department",
+                "Sanitation", "Sanitation Department",
+                "Waste Management", "Sanitation Department",
+                "Public Transport", "Transport Department"
+        );
+        categoryToDepartment.forEach((categoryName, departmentName) -> {
+            categoryRepository.findByName(categoryName).ifPresent(category -> {
+                if (category.getDepartment() == null) {
+                    category.setDepartment(departments.get(departmentName));
+                    categoryRepository.save(category);
+                }
+            });
+        });
+        log.info("Category-to-department auto-routing mappings seeded");
     }
 
     private void seedCategories() {
@@ -169,7 +197,7 @@ public class DataInitializer implements CommandLineRunner {
                 .title(title)
                 .description(description)
                 .category(category)
-                .location(location)
+                .resolvedAddress(location)
                 .department(department)
                 .assignedOfficial(official)
                 .status(ComplaintStatus.SUBMITTED)

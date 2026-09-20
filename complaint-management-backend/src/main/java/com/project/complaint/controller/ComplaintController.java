@@ -7,9 +7,11 @@ import com.project.complaint.entity.Priority;
 import com.project.complaint.service.ComplaintService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.Map;
@@ -25,11 +27,26 @@ public class ComplaintController {
         return auth.getAuthorities().iterator().next().getAuthority().replace("ROLE_", "");
     }
 
-    @PostMapping
+    // Multipart: the evidence photo travels with the rest of the form in one
+    // request when present, but is only mandatory for categories an admin has
+    // configured to require one - the service enforces that. Location
+    // (latitude/longitude) is always required by the service, one way or another.
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ComplaintDto.Response> createComplaint(
             Authentication auth,
-            @Valid @RequestBody ComplaintDto.CreateRequest request) {
-        return ResponseEntity.ok(complaintService.createComplaint(auth.getName(), request));
+            @RequestParam String title,
+            @RequestParam String description,
+            @RequestParam String category,
+            @RequestParam(required = false) Double latitude,
+            @RequestParam(required = false) Double longitude,
+            @RequestParam(value = "photo", required = false) MultipartFile photo) {
+        ComplaintDto.CreateRequest request = new ComplaintDto.CreateRequest();
+        request.setTitle(title);
+        request.setDescription(description);
+        request.setCategory(category);
+        request.setLatitude(latitude);
+        request.setLongitude(longitude);
+        return ResponseEntity.ok(complaintService.createComplaint(auth.getName(), request, photo));
     }
 
     @GetMapping
@@ -63,6 +80,22 @@ public class ComplaintController {
         return ResponseEntity.ok(complaintService.updateComplaintStatus(id, auth.getName(), roleOf(auth), request));
     }
 
+    /**
+     * Marks a complaint resolved, with the completion photo in the same request.
+     * Required when the category requires a citizen photo, optional otherwise;
+     * staff only (checked in the service).
+     */
+    @PostMapping(value = "/{id}/resolve", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<ComplaintDto.Response> resolve(
+            @PathVariable Long id,
+            Authentication auth,
+            @RequestParam(required = false) String remarks,
+            @RequestParam(required = false) String resolutionInfo,
+            @RequestParam(value = "photo", required = false) MultipartFile photo) {
+        return ResponseEntity.ok(complaintService.resolveComplaint(
+                id, auth.getName(), roleOf(auth), remarks, resolutionInfo, photo));
+    }
+
     @PatchMapping("/{id}/priority")
     public ResponseEntity<ComplaintDto.Response> updatePriority(
             @PathVariable Long id, Authentication auth, @RequestBody Map<String, String> body) {
@@ -75,6 +108,16 @@ public class ComplaintController {
                                                           @RequestBody(required = false) Map<String, String> body) {
         String reason = body != null ? body.get("reason") : null;
         return ResponseEntity.ok(complaintService.reopenComplaint(id, auth.getName(), reason));
+    }
+
+    /** Reopen with an optional photo (multipart). The JSON variant above keeps working. */
+    @PostMapping(value = "/{id}/reopen", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<ComplaintDto.Response> reopenWithPhoto(
+            @PathVariable Long id,
+            Authentication auth,
+            @RequestParam(required = false) String reason,
+            @RequestParam(value = "photo", required = false) MultipartFile photo) {
+        return ResponseEntity.ok(complaintService.reopenComplaint(id, auth.getName(), reason, photo));
     }
 
     @PostMapping("/{id}/close")

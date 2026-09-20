@@ -23,7 +23,9 @@ public interface ComplaintRepository extends JpaRepository<Complaint, Long>, Jpa
     long countByPriority(Priority priority);
     long countByCreatedAtAfter(LocalDateTime dateTime);
     List<Complaint> findByAssignedOfficialId(Long officialId);
+    List<Complaint> findByAssignedOfficialIdAndStatusNotIn(Long officialId, List<ComplaintStatus> statuses);
     List<Complaint> findByDepartmentId(Long departmentId);
     List<Complaint> findByCategory(String category);
     long countByCategory(String category);
+    long countByAssignedOfficialIdAndStatusNotIn(Long officialId, List<ComplaintStatus> statuses);
 }

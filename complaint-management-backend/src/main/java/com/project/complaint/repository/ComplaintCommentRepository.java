@@ -7,4 +7,5 @@ import java.util.List;
 public interface ComplaintCommentRepository extends JpaRepository<ComplaintComment, Long> {
     List<ComplaintComment> findByComplaintIdOrderByCreatedAtAsc(Long complaintId);
     long countByUserId(Long userId);
+    void deleteAllByComplaintId(Long complaintId);
 }

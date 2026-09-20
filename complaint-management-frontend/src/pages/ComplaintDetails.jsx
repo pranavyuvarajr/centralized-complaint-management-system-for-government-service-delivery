@@ -7,6 +7,11 @@ import { useAuth } from '../context/AuthContext';
 import StatusBadge from '../components/StatusBadge';
 import PriorityBadge from '../components/PriorityBadge';
 import StatusTimeline from '../components/StatusTimeline';
+import DeleteComplaintModal from '../components/DeleteComplaintModal';
+import ReopenModal from '../components/ReopenModal';
+import AttachmentSections from '../components/AttachmentSections';
+
+const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 
 const NEXT_STATUS = {
   SUBMITTED: ['UNDER_REVIEW', 'REJECTED'],
@@ -39,6 +44,9 @@ export default function ComplaintDetails() {
   const [ratingForm, setRatingForm] = useState({ rating: 0, comment: '' });
   const [newFile, setNewFile] = useState(null);
   const [preview, setPreview] = useState(null); // { url, name } for image lightbox
+  const [showDelete, setShowDelete] = useState(false);
+  const [showReopen, setShowReopen] = useState(false);
+  const [resolvePhoto, setResolvePhoto] = useState(null); // completion photo chosen for the Resolved update
 
   const basePath = user.role === 'ADMIN' ? '/admin' : user.role === 'OFFICIAL' ? '/official' : '/citizen';
 
@@ -49,6 +57,7 @@ export default function ComplaintDetails() {
       const { data } = await complaintAPI.getById(id);
       setComplaint(data);
       setStatusForm({ status: '', remarks: '', resolutionInfo: data.resolutionInfo || '' });
+      setResolvePhoto(null);
       setAssignForm({ departmentId: data.departmentId || '', officialId: data.assignedOfficialId || '' });
 
       const [commentsRes, attachmentsRes] = await Promise.all([
@@ -88,9 +97,24 @@ export default function ComplaintDetails() {
   const handleStatusUpdate = async (e) => {
     e.preventDefault();
     if (!statusForm.status) return;
+    setError('');
+    const resolving = statusForm.status === 'RESOLVED';
+    if (resolving && photoRequired && !resolvePhoto) {
+      setError('A completion photo is required for this category before the complaint can be marked resolved.');
+      return;
+    }
     setActionLoading(true);
     try {
-      await complaintAPI.updateStatus(id, statusForm);
+      if (resolving) {
+        // Resolving goes through its own endpoint so the completion photo is saved in the same step.
+        await complaintAPI.resolve(id, {
+          remarks: statusForm.remarks,
+          resolutionInfo: statusForm.resolutionInfo,
+          photo: resolvePhoto,
+        });
+      } else {
+        await complaintAPI.updateStatus(id, statusForm);
+      }
       await load();
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to update status');
@@ -129,17 +153,29 @@ export default function ComplaintDetails() {
     }
   };
 
-  const handleReopen = async () => {
-    const reason = window.prompt('Briefly explain why you are reopening this complaint (optional):') || '';
-    setActionLoading(true);
-    try {
-      await complaintAPI.reopen(id, reason);
-      await load();
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to reopen complaint');
-    } finally {
-      setActionLoading(false);
+  // Throws on failure so the reopen dialog can show the message.
+  const handleReopenConfirm = async (reason, photo) => {
+    await complaintAPI.reopen(id, reason, photo);
+    setShowReopen(false);
+    await load();
+  };
+
+  const handleResolvePhoto = (e) => {
+    const file = e.target.files[0] || null;
+    setError('');
+    if (file && !['image/jpeg', 'image/png'].includes(file.type)) {
+      setError('Only JPG or PNG photos are allowed.');
+      e.target.value = '';
+      setResolvePhoto(null);
+      return;
     }
+    if (file && file.size > MAX_PHOTO_BYTES) {
+      setError('The photo is larger than 5MB.');
+      e.target.value = '';
+      setResolvePhoto(null);
+      return;
+    }
+    setResolvePhoto(file);
   };
 
   const handleClose = async () => {
@@ -232,6 +268,12 @@ export default function ComplaintDetails() {
     }
   };
 
+  // Throws on failure (e.g. wrong password) so the modal can show the message.
+  const handleDelete = async (adminPassword) => {
+    await adminAPI.deleteComplaint(id, adminPassword);
+    navigate(`${basePath}/complaints`);
+  };
+
   const closePreview = () => {
     if (preview?.url) window.URL.revokeObjectURL(preview.url);
     setPreview(null);
@@ -242,7 +284,10 @@ export default function ComplaintDetails() {
 
   const isOwner = user.role === 'CITIZEN' && complaint.citizenEmail === user.email;
   const canManage = user.role === 'OFFICIAL' || user.role === 'ADMIN';
-  const nextStatuses = NEXT_STATUS[complaint.status] || [];
+  // Closing is the citizen's decision only, so staff are never offered CLOSED.
+  const nextStatuses = (NEXT_STATUS[complaint.status] || []).filter((st) => st !== 'CLOSED');
+  // Resolving needs a completion photo when the category requires a citizen photo (server decides).
+  const photoRequired = complaint.completionPhotoRequired !== false;
 
   return (
     <div>
@@ -266,7 +311,19 @@ export default function ComplaintDetails() {
 
         <div className="form-row" style={{ marginBottom: 16, fontSize: '0.85rem' }}>
           <div><span className="card__label">Category</span><br />{complaint.category}</div>
-          <div><span className="card__label">Location</span><br />{complaint.location || '—'}</div>
+          <div>
+            <span className="card__label">Location</span><br />
+            {complaint.resolvedAddress || '—'}
+            {complaint.latitude != null && complaint.longitude != null && (
+              <>
+                {' '}
+                <a href={`https://www.openstreetmap.org/?mlat=${complaint.latitude}&mlon=${complaint.longitude}#map=18/${complaint.latitude}/${complaint.longitude}`}
+                  target="_blank" rel="noreferrer" style={{ fontSize: '0.78rem' }}>
+                  (view on map)
+                </a>
+              </>
+            )}
+          </div>
           <div><span className="card__label">Department</span><br />{complaint.departmentName || 'Not yet assigned'}</div>
           <div><span className="card__label">Assigned Official</span><br />{complaint.assignedOfficialName || '—'}</div>
           {canManage && <div><span className="card__label">Citizen</span><br />{complaint.citizenName} ({complaint.citizenEmail})</div>}
@@ -291,17 +348,7 @@ export default function ComplaintDetails() {
         {attachments.length === 0 ? (
           <p style={{ fontSize: '0.85rem', color: 'var(--c-text-faint)' }}>No attachments yet.</p>
         ) : (
-          <div className="attachment-list">
-            {attachments.map((a) => (
-              <div className="attachment-item" key={a.id}>
-                <span>📎 {a.originalFileName} <span style={{ color: 'var(--c-text-faint)' }}>({Math.round(a.fileSize / 1024)} KB)</span></span>
-                <span style={{ display: 'flex', gap: 6 }}>
-                  <button className="btn btn--ghost btn--sm" onClick={() => handleView(a)}>View</button>
-                  <button className="btn btn--outline btn--sm" onClick={() => handleDownload(a)}>Download</button>
-                </span>
-              </div>
-            ))}
-          </div>
+          <AttachmentSections attachments={attachments} onView={handleView} onDownload={handleDownload} />
         )}
         {isOwner && (
           <form onSubmit={handleFileUpload} style={{ display: 'flex', gap: 8, marginTop: 14 }}>
@@ -373,14 +420,47 @@ export default function ComplaintDetails() {
                     onChange={(e) => setStatusForm({ ...statusForm, resolutionInfo: e.target.value })} />
                 </div>
               )}
+              {statusForm.status === 'RESOLVED' && (
+                <div className="form-group">
+                  <label>Completion photo {photoRequired ? '(required)' : '(optional)'}</label>
+                  <input type="file" className="form-control" accept="image/jpeg,image/png"
+                    onChange={handleResolvePhoto} />
+                  <span className="hint">
+                    {photoRequired
+                      ? 'Upload a photo of the finished work (JPG or PNG, up to 5MB). This category requires photo evidence, so the complaint cannot be marked resolved without it.'
+                      : 'Optional for this category. You can attach a photo of the finished work (JPG or PNG, up to 5MB).'}
+                  </span>
+                </div>
+              )}
               <button type="submit" className="btn btn--success" disabled={!statusForm.status || actionLoading}>
                 Update Status
               </button>
             </form>
+          ) : complaint.status === 'RESOLVED' ? (
+            <p style={{ fontSize: '0.82rem', color: 'var(--c-text-faint)' }}>
+              This complaint is resolved. The citizen can now close it, or reopen it if the issue persists.
+            </p>
           ) : (
             <p style={{ fontSize: '0.82rem', color: 'var(--c-text-faint)' }}>
               This complaint is in a final state and cannot be updated further.
             </p>
+          )}
+
+          {user.role === 'ADMIN' && (
+            <div style={{
+              marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--c-border)',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+            }}>
+              <div>
+                <span className="card__label">Delete Complaint</span>
+                <p style={{ fontSize: '0.82rem', color: 'var(--c-text-faint)', marginTop: 4 }}>
+                  Permanently removes this complaint and everything attached to it. Requires your password.
+                </p>
+              </div>
+              <button type="button" className="btn btn--danger btn--sm" onClick={() => setShowDelete(true)}>
+                Delete
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -390,11 +470,12 @@ export default function ComplaintDetails() {
         <div className="card">
           <h3 className="card__title">Not satisfied?</h3>
           <p style={{ fontSize: '0.85rem', color: 'var(--c-text-light)', marginBottom: 12 }}>
-            You can close this complaint if you're happy with the resolution, or reopen it if the issue persists.
+            Check the completion photo and details above. Close the complaint if you're happy with the resolution,
+            or reopen it if the issue persists. A closed complaint is final and cannot be reopened.
           </p>
           <div style={{ display: 'flex', gap: 10 }}>
             <button className="btn btn--success" onClick={handleClose} disabled={actionLoading}>Close Complaint</button>
-            <button className="btn btn--outline" onClick={handleReopen} disabled={actionLoading}>Reopen</button>
+            <button className="btn btn--outline" onClick={() => setShowReopen(true)} disabled={actionLoading}>Reopen</button>
           </div>
         </div>
       )}
@@ -458,6 +539,22 @@ export default function ComplaintDetails() {
         <h3 className="card__title">Status History</h3>
         <StatusTimeline history={complaint.history} />
       </div>
+
+      {showReopen && (
+        <ReopenModal
+          complaint={complaint}
+          onConfirm={handleReopenConfirm}
+          onCancel={() => setShowReopen(false)}
+        />
+      )}
+
+      {showDelete && (
+        <DeleteComplaintModal
+          complaint={complaint}
+          onConfirm={handleDelete}
+          onCancel={() => setShowDelete(false)}
+        />
+      )}
 
       {preview && (
         <div className="lightbox" onClick={closePreview}>

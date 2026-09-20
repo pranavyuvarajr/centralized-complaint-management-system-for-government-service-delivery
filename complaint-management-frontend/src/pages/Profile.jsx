@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { profileAPI } from '../services/api';
+import { phoneError } from '../utils/phone';
 
 export default function Profile() {
   const [profile, setProfile] = useState(null);
@@ -22,6 +23,11 @@ export default function Profile() {
   const handleUpdate = async (e) => {
     e.preventDefault();
     setMessage(''); setError('');
+    const phoneProblem = phoneError(form.phone);
+    if (phoneProblem) {
+      setError(phoneProblem);
+      return;
+    }
     try {
       await profileAPI.update(form);
       setMessage('Profile updated successfully.');
@@ -69,8 +75,10 @@ export default function Profile() {
               <input className="form-control" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
             </div>
             <div className="form-group">
-              <label>Phone</label>
-              <input className="form-control" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+              <label>Mobile Number</label>
+              <input type="tel" inputMode="tel" className="form-control" required maxLength={17}
+                placeholder="10-digit mobile number"
+                value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
             </div>
             <div className="form-group">
               <label>Email</label>

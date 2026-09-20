@@ -39,7 +39,14 @@ public class Complaint {
     @Column(nullable = false)
     private String category;
 
-    private String location;
+    // Location is a coordinate pair the citizen marked on the map (pin, address
+    // search or current location) — independent of any photo. It is null when the
+    // complaint's category doesn't require a location and none was given.
+    private Double latitude;
+    private Double longitude;
+
+    @Column(name = "resolved_address", columnDefinition = "TEXT")
+    private String resolvedAddress;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)

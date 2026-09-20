@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
+import PhonePrompt from './components/PhonePrompt';
 import ProtectedRoute from './routes/ProtectedRoute';
 
 // Public / shared pages
@@ -37,6 +38,7 @@ function DashboardLayout({ children }) {
         <Sidebar open={menuOpen} onNavigate={() => setMenuOpen(false)} />
         <main className="main-content">{children}</main>
       </div>
+      <PhonePrompt />
     </>
   );
 }
