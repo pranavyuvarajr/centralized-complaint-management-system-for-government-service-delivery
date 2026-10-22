@@ -1,13 +1,15 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { authAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { safeRedirectPath } from '../utils/safeRedirect';
 
 export default function Login() {
   const [form, setForm] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const { login } = useAuth();
 
   const handleSubmit = async (e) => {
@@ -17,7 +19,10 @@ export default function Login() {
     try {
       const { data } = await authAPI.login(form);
       login(data);
-      if (data.role === 'ADMIN') navigate('/admin');
+      // Back to the page they were trying to open, only if it is a safe internal path allowed for their role.
+      const back = safeRedirectPath(location.state?.from, data.role);
+      if (back) navigate(back, { replace: true });
+      else if (data.role === 'ADMIN') navigate('/admin');
       else if (data.role === 'OFFICIAL') navigate('/official');
       else navigate('/citizen');
     } catch (err) {

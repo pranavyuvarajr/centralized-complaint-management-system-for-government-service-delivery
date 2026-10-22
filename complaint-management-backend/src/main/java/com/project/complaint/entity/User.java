@@ -36,6 +36,24 @@ public class User {
     @Builder.Default
     private boolean active = true;
 
+    // ---- Alert email (OFFICIAL / ADMIN): used for urgent-complaint emails, only when verified ----
+    @Column(name = "alert_email")
+    private String alertEmail;
+
+    @Column(name = "alert_email_verified", nullable = false, columnDefinition = "boolean not null default false")
+    @Builder.Default
+    private boolean alertEmailVerified = false;
+
+    /** SHA-256 hash of the verification token; the raw token is only ever in the email link. */
+    @Column(name = "alert_email_token_hash")
+    private String alertEmailTokenHash;
+
+    @Column(name = "alert_email_token_expires_at")
+    private LocalDateTime alertEmailTokenExpiresAt;
+
+    @Column(name = "alert_email_token_sent_at")
+    private LocalDateTime alertEmailTokenSentAt;
+
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 

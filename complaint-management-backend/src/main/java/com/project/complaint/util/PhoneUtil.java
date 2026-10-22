@@ -1,5 +1,7 @@
 package com.project.complaint.util;
 
+import com.project.complaint.entity.Role;
+
 import java.util.regex.Pattern;
 
 /**
@@ -32,6 +34,22 @@ public final class PhoneUtil {
         else if (s.startsWith("91") && s.length() == 12) s = s.substring(2);
         else if (s.startsWith("0") && s.length() == 11) s = s.substring(1);
         return VALID_MOBILE.matcher(s).matches() ? s : null;
+    }
+
+    /**
+     * Role-aware rule: citizens must give a valid number; officials and admins (created by an admin) may
+     * leave it empty, in which case null is returned. A number that IS given must still be valid.
+     */
+    public static String normalizeForRole(Role role, String raw) {
+        if (role != null && role != Role.CITIZEN && (raw == null || raw.isBlank())) {
+            return null;
+        }
+        return requireValid(raw);
+    }
+
+    /** A mobile number must be unique among citizens only; officials and admins may share numbers. */
+    public static boolean mustBeUnique(Role role) {
+        return role == null || role == Role.CITIZEN;
     }
 
     /** Returns the normalized number or throws IllegalStateException (reported to the client as a 400 with the message). */

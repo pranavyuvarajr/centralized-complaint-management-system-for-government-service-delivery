@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { complaintAPI, categoryAPI } from '../services/api';
+import { complaintAPI, categoryAPI, profileAPI } from '../services/api';
 import LocationPicker from '../components/LocationPicker';
+import PhonePrompt from '../components/PhonePrompt';
 
 // The unsaved form is kept in sessionStorage so it survives the page being reloaded
 // (phones often reload the tab while the file chooser / camera is open). The photo
@@ -29,6 +30,9 @@ function clearDraft() {
 
 const EMPTY_FORM = { title: '', description: '', category: '' };
 
+const URGENCY_MIN = 20;
+const URGENCY_MAX = 1000;
+
 export default function ComplaintForm() {
   const [draft] = useState(loadDraft); // read once, on first render
   const [categories, setCategories] = useState([]);
@@ -45,6 +49,11 @@ export default function ComplaintForm() {
   const [restored] = useState(() => !!(draft && (draft.form?.title || draft.form?.description || draft.coords)));
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  // Normal (default) or Urgent. The urgency choice is deliberately not part of the saved draft,
+  // so a restored form never silently comes back as urgent.
+  const [urgent, setUrgent] = useState(false);
+  const [urgencyReason, setUrgencyReason] = useState('');
+  const [askPhone, setAskPhone] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -91,6 +100,10 @@ export default function ComplaintForm() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    await submit();
+  };
+
+  const submit = async (phoneJustSaved = false) => {
     setError('');
     if (form.description.trim().length < 20) {
       setError('Complaint description must contain at least 20 characters.');
@@ -105,10 +118,28 @@ export default function ComplaintForm() {
       return;
     }
 
+    if (urgent) {
+      const len = urgencyReason.trim().length;
+      if (len < URGENCY_MIN || len > URGENCY_MAX) {
+        setError(`Please explain why this is urgent (${URGENCY_MIN} to ${URGENCY_MAX} characters).`);
+        return;
+      }
+    }
+
     setLoading(true);
     try {
+      if (urgent && !phoneJustSaved) {
+        // The official may call to verify, so urgent needs a phone number on the account.
+        // Reuse the existing phone prompt if it is missing.
+        const { data: profile } = await profileAPI.get();
+        if (!profile.phone || !String(profile.phone).trim()) {
+          setAskPhone(true);
+          return;
+        }
+      }
       const { data } = await complaintAPI.create({
         ...form,
+        ...(urgent ? { urgent: true, urgencyReason: urgencyReason.trim() } : {}),
         ...(coords ? { latitude: coords.lat, longitude: coords.lon } : {}),
         photo: photo || undefined,
       });
@@ -129,7 +160,8 @@ export default function ComplaintForm() {
   const canSubmit = !loading && form.title && form.category
     && form.description.trim().length >= 20
     && (!imageRequired || photo)
-    && (!locationRequired || coords);
+    && (!locationRequired || coords)
+    && (!urgent || urgencyReason.trim().length >= URGENCY_MIN);
 
   return (
     <div>
@@ -171,6 +203,37 @@ export default function ComplaintForm() {
               value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
             <span className="hint">Minimum 20 characters. Currently {form.description.length}.</span>
           </div>
+
+          <div className="form-group">
+            <label>Priority of this complaint</label>
+            <div className="urgency-choice" role="radiogroup" aria-label="Complaint type">
+              <label className={`urgency-choice__option${!urgent ? ' urgency-choice__option--active' : ''}`}>
+                <input type="radio" name="complaint-type" checked={!urgent} onChange={() => setUrgent(false)} />
+                <span><strong>Normal</strong><small>Routed to the department as usual.</small></span>
+              </label>
+              <label className={`urgency-choice__option urgency-choice__option--urgent${urgent ? ' urgency-choice__option--active' : ''}`}>
+                <input type="radio" name="complaint-type" checked={urgent} onChange={() => setUrgent(true)} />
+                <span><strong>Urgent</strong><small>Needs immediate attention.</small></span>
+              </label>
+            </div>
+          </div>
+
+          {urgent && (
+            <div className="form-group">
+              <div className="alert alert--info">
+                Urgent complaints are sent to the responsible official immediately. The official may call you to
+                verify, and may change the complaint to Normal if it does not qualify as urgent or if you cannot be
+                reached. Please describe clearly and professionally why this is urgent.
+              </div>
+              <label>Why is this urgent?</label>
+              <textarea className="form-control" rows={4} maxLength={URGENCY_MAX}
+                placeholder="e.g. A main water pipe has burst and is flooding the road outside a school, creating a risk of accidents."
+                value={urgencyReason} onChange={e => setUrgencyReason(e.target.value)} />
+              <span className="hint">
+                {URGENCY_MIN}–{URGENCY_MAX} characters. Currently {urgencyReason.trim().length}. The mobile number on your account will be visible to the official so they can call you.
+              </span>
+            </div>
+          )}
 
           <div className="form-group">
             <label>Photo of the issue {form.category ? (imageRequired ? '(required)' : '(optional)') : ''}</label>
@@ -221,6 +284,11 @@ export default function ComplaintForm() {
           </div>
         </form>
       </div>
+      {askPhone && (
+        <PhonePrompt force
+          onSaved={() => { setAskPhone(false); submit(true); }}
+          onCancel={() => setAskPhone(false)} />
+      )}
     </div>
   );
 }

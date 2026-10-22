@@ -18,6 +18,9 @@ public class UserDto {
         private String departmentName;
         private boolean active;
         private LocalDateTime createdAt;
+        // Own profile only (GET /api/users/me, OFFICIAL/ADMIN); null in every other response.
+        private String alertEmail;
+        private Boolean alertEmailVerified;
     }
 
     @Getter @Setter @NoArgsConstructor @AllArgsConstructor

@@ -7,7 +7,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Entity
-@Table(name = "complaints")
+@Table(name = "complaints", indexes = {
+        @Index(name = "idx_complaints_urgency_status", columnList = "urgency_status")
+})
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class Complaint {
 
@@ -59,6 +61,50 @@ public class Complaint {
 
     @Column(name = "resolution_info", columnDefinition = "TEXT")
     private String resolutionInfo;
+
+    // ---- Urgent-complaint feature (all additive: DB-level defaults keep existing rows valid) ----
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "urgency_status", nullable = false, columnDefinition = "varchar(32) not null default 'NONE'")
+    @Builder.Default
+    private UrgencyStatus urgencyStatus = UrgencyStatus.NONE;
+
+    /** The citizen's justification for marking the complaint urgent. Never erased, even after a downgrade. */
+    @Column(name = "urgency_reason", columnDefinition = "TEXT")
+    private String urgencyReason;
+
+    @Column(name = "was_initially_urgent", nullable = false, columnDefinition = "boolean not null default false")
+    @Builder.Default
+    private boolean wasInitiallyUrgent = false;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "urgency_decided_by_id")
+    private User urgencyDecidedBy;
+
+    @Column(name = "urgency_decided_at")
+    private LocalDateTime urgencyDecidedAt;
+
+    @Column(name = "urgency_decision_note", columnDefinition = "TEXT")
+    private String urgencyDecisionNote;
+
+    /** True once an admin has overridden a locked decision. */
+    @Column(name = "urgency_overridden", nullable = false, columnDefinition = "boolean not null default false")
+    @Builder.Default
+    private boolean urgencyOverridden = false;
+
+    /** Start of the reminder clock: when the current official was assigned (or submission time if unassigned). */
+    @Column(name = "urgency_assigned_at")
+    private LocalDateTime urgencyAssignedAt;
+
+    @Column(name = "reminder_count", nullable = false, columnDefinition = "integer not null default 0")
+    @Builder.Default
+    private int reminderCount = 0;
+
+    @Column(name = "last_reminder_at")
+    private LocalDateTime lastReminderAt;
+
+    @Column(name = "admin_escalated_at")
+    private LocalDateTime adminEscalatedAt;
 
     @OneToMany(mappedBy = "complaint", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("updatedAt DESC")

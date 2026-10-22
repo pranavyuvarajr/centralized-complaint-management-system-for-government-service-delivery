@@ -21,6 +21,9 @@ public class ComplaintDto {
         // GPS) when the photo does carry a usable GPS tag.
         private Double latitude;
         private Double longitude;
+        // Urgent-complaint flow. Validated in UrgencyService (reason 20-1000 chars, phone on account).
+        private boolean urgent;
+        private String urgencyReason;
     }
 
     @Getter @Setter @NoArgsConstructor @AllArgsConstructor
@@ -63,6 +66,21 @@ public class ComplaintDto {
         // Whether marking this complaint resolved needs a completion photo (mirrors the
         // category's photo rule). Only filled in for single-complaint responses, null in lists.
         private Boolean completionPhotoRequired;
+
+        // ---- Urgent-complaint feature ----
+        // urgencyStatus is NONE / PENDING / CONFIRMED_URGENT / DOWNGRADED_TO_NORMAL.
+        private String urgencyStatus;
+        private Boolean wasInitiallyUrgent;
+        private String urgencyReason;
+        private String urgencyDecidedByName;
+        private LocalDateTime urgencyDecidedAt;
+        private String urgencyDecisionNote;
+        private Boolean urgencyOverridden;
+        // Filled ONLY in the single-complaint response, and ONLY for admins and the assigned
+        // official (null for everyone else, in lists, and on the public track page).
+        private String citizenPhone;
+        private Boolean canDecideUrgency;
+        private Boolean canOverrideUrgency;
     }
 
     @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
@@ -85,5 +103,8 @@ public class ComplaintDto {
         private LocalDateTime submittedAt;
         private LocalDateTime updatedAt;
         private List<HistoryResponse> history;
+        // Badge label only (no reasons, names or phone): "Urgent (pending verification)",
+        // "Urgent (verified)" or null.
+        private String urgencyLabel;
     }
 }

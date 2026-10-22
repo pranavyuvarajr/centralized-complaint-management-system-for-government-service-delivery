@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { profileAPI } from '../services/api';
-import { phoneError } from '../utils/phone';
+import { phoneError, phoneErrorOptional } from '../utils/phone';
+import AlertEmailCard from '../components/AlertEmailCard';
 
 export default function Profile() {
   const [profile, setProfile] = useState(null);
@@ -23,7 +24,8 @@ export default function Profile() {
   const handleUpdate = async (e) => {
     e.preventDefault();
     setMessage(''); setError('');
-    const phoneProblem = phoneError(form.phone);
+    // Mandatory for citizens only; officials and admins may leave it empty (or add it later).
+    const phoneProblem = profile.role === 'CITIZEN' ? phoneError(form.phone) : phoneErrorOptional(form.phone);
     if (phoneProblem) {
       setError(phoneProblem);
       return;
@@ -75,8 +77,8 @@ export default function Profile() {
               <input className="form-control" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
             </div>
             <div className="form-group">
-              <label>Mobile Number</label>
-              <input type="tel" inputMode="tel" className="form-control" required maxLength={17}
+              <label>Mobile Number{profile.role !== 'CITIZEN' && <span className="hint"> (optional)</span>}</label>
+              <input type="tel" inputMode="tel" className="form-control" required={profile.role === 'CITIZEN'} maxLength={17}
                 placeholder="10-digit mobile number"
                 value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
             </div>
@@ -117,6 +119,10 @@ export default function Profile() {
           </form>
         </div>
       </div>
+
+      {(profile.role === 'OFFICIAL' || profile.role === 'ADMIN') && (
+        <AlertEmailCard profile={profile} onChanged={load} />
+      )}
     </div>
   );
 }

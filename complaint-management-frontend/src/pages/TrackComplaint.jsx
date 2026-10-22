@@ -62,6 +62,7 @@ export default function TrackComplaint() {
                 <span style={{ fontSize: '0.78rem', color: 'var(--c-text-faint)' }}>{result.complaintNumber}</span>
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
+                {result.urgencyLabel && <span className="badge badge--urgent">⚡ {result.urgencyLabel}</span>}
                 <PriorityBadge priority={result.priority} />
                 <StatusBadge status={result.status} />
               </div>

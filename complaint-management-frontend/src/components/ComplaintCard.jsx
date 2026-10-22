@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import StatusBadge from './StatusBadge';
 import PriorityBadge from './PriorityBadge';
+import UrgencyBadge from './UrgencyBadge';
 
 export default function ComplaintCard({ complaint, basePath = '' }) {
   const navigate = useNavigate();
@@ -16,6 +17,7 @@ export default function ComplaintCard({ complaint, basePath = '' }) {
           <span className="complaint-card__id">{complaint.complaintNumber || `#${complaint.id}`}</span>
         </div>
         <div className="complaint-card__badges">
+          <UrgencyBadge urgencyStatus={complaint.urgencyStatus} />
           <PriorityBadge priority={complaint.priority} />
           <StatusBadge status={complaint.status} />
         </div>

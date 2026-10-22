@@ -68,6 +68,7 @@ Spring Boot REST API for the Centralized Complaint Management System.
 |--------|----------|-------------|
 | POST | `/api/auth/register` | Register new user |
 | POST | `/api/auth/login` | Login |
+| POST | `/api/auth/verify-alert-email` | Public. Confirms an official/admin alert email from the emailed token (single use, 24 h). Body: `{ "token": "..." }` |
 
 ### Complaints
 | Method | Endpoint | Description |
@@ -80,6 +81,16 @@ Spring Boot REST API for the Centralized Complaint Management System.
 | POST | `/api/complaints/{id}/reopen` | Citizen reopens a resolved complaint. `reason` (10+ chars) required; JSON body, or multipart with an optional `photo` |
 | POST | `/api/complaints/{id}/close` | Citizen closes their resolved complaint |
 | GET | `/api/complaints/{id}/history` | Get status history |
+| POST | `/api/complaints` (`urgent`, `urgencyReason`) | Optional urgent flow: justification 20-1000 chars and a phone number on the account are required; priority is forced to URGENT and the decision is PENDING |
+| POST | `/api/complaints/{id}/urgency/decision` | Assigned official or any admin, first decision wins. Body: `{ "decision": "CONFIRM_URGENT" \| "MARK_NORMAL", "note": "..." }` (note required, 10+ chars, for `MARK_NORMAL`) |
+
+
+### Alert email (officials and admins)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| PUT | `/api/users/me/alert-email` | Set or change (resets verification and sends a verification email) |
+| POST | `/api/users/me/alert-email/resend` | Resend verification (rate limited to once per minute) |
+| DELETE | `/api/users/me/alert-email` | Clear |
 
 ### Departments
 | Method | Endpoint | Description |
@@ -95,8 +106,9 @@ Spring Boot REST API for the Centralized Complaint Management System.
 | GET | `/api/admin/users` | List all users |
 | GET | `/api/admin/users/role/{role}` | Users by role |
 | POST | `/api/admin/users` | Create user |
-| PUT | `/api/admin/users/{id}` | Edit a user (name, phone; department for officials). Body may carry `reassignTo` / `unassignComplaints` when an official with active complaints changes department (otherwise `409` with `requiresReassignment` and candidate officials) |
+| PUT | `/api/admin/users/{id}` | Edit a user (name, phone, optional for officials/admins; department for officials). Body may carry `reassignTo` / `unassignComplaints` when an official with active complaints changes department (otherwise `409` with `requiresReassignment` and candidate officials) |
 | DELETE | `/api/admin/users/{id}` | Delete user |
+| PATCH | `/api/admin/complaints/{id}/urgency` | Admin override of a locked urgency decision. Body: `{ "decision": "CONFIRM_URGENT" \| "MARK_NORMAL", "note": "..." }` (note required) |
 | DELETE | `/api/admin/complaints/{id}` | Permanently delete a complaint and its related data. Body: `{ "adminPassword": "..." }` (the admin's own password) |
 | PUT | `/api/admin/complaints/{id}/assign/{deptId}` | Assign complaint |
 | GET | `/api/admin/stats` | Dashboard stats |

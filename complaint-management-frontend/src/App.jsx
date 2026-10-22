@@ -1,16 +1,18 @@
 import { useState } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
 import PhonePrompt from './components/PhonePrompt';
 import ProtectedRoute from './routes/ProtectedRoute';
+import { safeRedirectPath } from './utils/safeRedirect';
 
 // Public / shared pages
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import TrackComplaint from './pages/TrackComplaint';
+import VerifyAlertEmail from './pages/VerifyAlertEmail';
 import Profile from './pages/Profile';
 
 // Citizen
@@ -43,6 +45,14 @@ function DashboardLayout({ children }) {
   );
 }
 
+// /login: an already signed-in user goes back to the page they were trying to open (if safe), else to the home redirect.
+function LoginRoute() {
+  const { user } = useAuth();
+  const location = useLocation();
+  if (!user) return <Login />;
+  return <Navigate to={safeRedirectPath(location.state?.from, user.role) || '/'} replace />;
+}
+
 export default function App() {
   const { user } = useAuth();
 
@@ -50,9 +60,10 @@ export default function App() {
     <Routes>
       {/* Public */}
       <Route path="/" element={<Home />} />
-      <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
+      <Route path="/login" element={<LoginRoute />} />
       <Route path="/register" element={user ? <Navigate to="/" replace /> : <Register />} />
       <Route path="/track" element={<TrackComplaint />} />
+      <Route path="/verify-alert-email" element={<VerifyAlertEmail />} />
 
       {/* Citizen */}
       <Route path="/citizen" element={

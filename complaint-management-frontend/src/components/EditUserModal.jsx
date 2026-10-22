@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { phoneError } from '../utils/phone';
+import { phoneError, phoneErrorOptional } from '../utils/phone';
 
 /**
  * Admin edit dialog for a user (opened from the Actions menu on the Users page).
@@ -22,6 +22,8 @@ export default function EditUserModal({ user, departments, submitting, error, on
   const [localError, setLocalError] = useState('');
 
   const isOfficial = user.role === 'OFFICIAL';
+  // A mobile number is mandatory for citizens only; officials and admins may leave it empty.
+  const phoneRequired = user.role === 'CITIZEN';
   const departmentChanged = isOfficial && departmentId !== '' && Number(departmentId) !== user.departmentId;
   // Only offer active departments, plus the official's current one so the dropdown reflects reality.
   const choices = departments.filter((d) => d.active || d.id === user.departmentId);
@@ -33,7 +35,7 @@ export default function EditUserModal({ user, departments, submitting, error, on
       setLocalError('Name is required.');
       return;
     }
-    const phoneProblem = phoneError(phone);
+    const phoneProblem = phoneRequired ? phoneError(phone) : phoneErrorOptional(phone);
     if (phoneProblem) {
       setLocalError(phoneProblem);
       return;
@@ -63,8 +65,8 @@ export default function EditUserModal({ user, departments, submitting, error, on
           <input className="form-control" value={user.email} disabled />
         </div>
         <div className="form-group">
-          <label>Mobile Number</label>
-          <input type="tel" inputMode="tel" className="form-control" required maxLength={17}
+          <label>Mobile Number{!phoneRequired && <span className="hint"> (optional)</span>}</label>
+          <input type="tel" inputMode="tel" className="form-control" required={phoneRequired} maxLength={17}
             placeholder="10-digit mobile number" value={phone} onChange={(e) => setPhone(e.target.value)} />
         </div>
         <div className="form-group">

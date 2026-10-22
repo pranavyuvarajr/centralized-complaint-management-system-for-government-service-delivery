@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { phoneErrorOptional } from '../utils/phone';
 import { adminAPI, departmentAPI } from '../services/api';
 import ActionMenu from '../components/ActionMenu';
 import ReassignModal from '../components/ReassignModal';
@@ -36,6 +37,12 @@ export default function AdminUsers() {
   const handleCreate = async (e) => {
     e.preventDefault();
     setError('');
+    // Officials and admins may be created without a mobile number; one that is entered must be valid.
+    const phoneProblem = phoneErrorOptional(form.phone);
+    if (phoneProblem) {
+      setError(phoneProblem);
+      return;
+    }
     try {
       await adminAPI.createUser({ ...form, departmentId: form.departmentId ? Number(form.departmentId) : null });
       setShowForm(false);
@@ -145,9 +152,9 @@ export default function AdminUsers() {
                 <input type="email" className="form-control" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
               </div>
               <div className="form-group">
-                <label>Mobile Number</label>
-                <input type="tel" inputMode="tel" className="form-control" required maxLength={17}
-                  placeholder="10-digit mobile number"
+                <label>Mobile Number <span className="hint">(optional)</span></label>
+                <input type="tel" inputMode="tel" className="form-control" maxLength={17}
+                  placeholder="10-digit mobile number (optional)"
                   value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
               </div>
               <div className="form-group">

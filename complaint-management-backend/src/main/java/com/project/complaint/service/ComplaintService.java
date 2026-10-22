@@ -47,6 +47,8 @@ public class ComplaintService {
     private final FeedbackRepository feedbackRepository;
     private final NotificationRepository notificationRepository;
     private final PasswordEncoder passwordEncoder;
+    private final UrgencyService urgencyService;
+    private final UrgentAlertService urgentAlertService;
 
     private static final Map<ComplaintStatus, Set<ComplaintStatus>> ALLOWED_TRANSITIONS = Map.of(
             ComplaintStatus.SUBMITTED, Set.of(ComplaintStatus.UNDER_REVIEW, ComplaintStatus.REJECTED),
@@ -125,6 +127,10 @@ public class ComplaintService {
                             + "use your current location, or drop a pin on the map to mark where the issue is.");
         }
 
+        // Urgent flow: null for a normal complaint (anything the client sent about urgency is then ignored).
+        String urgencyReason = urgencyService.validateUrgentRequest(request.isUrgent(), request.getUrgencyReason(), user);
+        boolean urgent = urgencyReason != null;
+
         Complaint complaint = Complaint.builder()
                 .user(user)
                 .title(request.getTitle().trim())
@@ -134,7 +140,11 @@ public class ComplaintService {
                 .longitude(longitude)
                 .resolvedAddress(resolvedAddress)
                 .status(ComplaintStatus.SUBMITTED)
-                .priority(Priority.MEDIUM)
+                .priority(urgent ? Priority.URGENT : Priority.MEDIUM)
+                .urgencyStatus(urgent ? UrgencyStatus.PENDING : UrgencyStatus.NONE)
+                .urgencyReason(urgencyReason)
+                .wasInitiallyUrgent(urgent)
+                .urgencyAssignedAt(urgent ? LocalDateTime.now() : null)
                 .build();
 
         complaint = complaintRepository.save(complaint);
@@ -153,6 +163,11 @@ public class ComplaintService {
                         + (resolvedAddress != null ? " at \"" + resolvedAddress + "\"" : " (no location provided)")
                         + (hasPhoto ? " with a photo attached" : " (no photo attached)"));
 
+        if (urgent) {
+            auditLogService.log(user, "URGENT_COMPLAINT_SUBMITTED", "Complaint", complaint.getId(),
+                    "Citizen marked complaint " + complaint.getComplaintNumber() + " as urgent (pending verification)");
+        }
+
         // Attach the evidence photo, if one was provided. Runs inside the same
         // transaction, so if this fails the whole complaint creation rolls back.
         if (hasPhoto) {
@@ -160,6 +175,11 @@ public class ComplaintService {
         }
 
         complaint = autoRouteComplaint(complaint, user);
+
+        if (urgent) {
+            // Starts the reminder clock and alerts the assigned official (email) or the admins (unassigned).
+            urgentAlertService.onSubmitted(complaint);
+        }
 
         return mapToResponse(complaint);
     }
@@ -228,7 +248,9 @@ public class ComplaintService {
                         + department.getName() + ".",
                 complaint.getId());
         notificationService.notify(leastBusy,
-                "Complaint " + complaint.getComplaintNumber() + " has been auto-assigned to you.",
+                (complaint.getUrgencyStatus() == UrgencyStatus.PENDING
+                        ? "URGENT complaint " + complaint.getComplaintNumber() + " has been auto-assigned to you."
+                        : "Complaint " + complaint.getComplaintNumber() + " has been auto-assigned to you."),
                 complaint.getId());
 
         auditLogService.log(citizen, "COMPLAINT_AUTO_ASSIGNED", "Complaint", complaint.getId(), remarks);
@@ -277,14 +299,18 @@ public class ComplaintService {
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
         checkAccess(complaint, user, role);
-        return withCompletionFlag(mapToResponse(complaint), complaint);
+        ComplaintDto.Response response = withCompletionFlag(mapToResponse(complaint), complaint);
+        urgencyService.decorateForCaller(response, complaint, user, role);
+        return response;
     }
 
     public ComplaintDto.TrackResponse trackByNumber(String complaintNumber) {
         Complaint complaint = complaintRepository.findByComplaintNumber(complaintNumber)
                 .orElseThrow(() -> new RuntimeException("No complaint found with that reference number"));
 
+        // Urgency decisions carry reasons and names, which must never reach the public page.
         List<ComplaintDto.HistoryResponse> history = complaint.getHistory().stream()
+                .filter(h -> !UrgencyService.isUrgencyHistory(h.getRemarks()))
                 .map(this::mapHistory)
                 .collect(Collectors.toList());
 
@@ -298,6 +324,7 @@ public class ComplaintService {
                 .submittedAt(complaint.getCreatedAt())
                 .updatedAt(complaint.getUpdatedAt())
                 .history(history)
+                .urgencyLabel(urgencyService.trackLabel(complaint))
                 .build();
     }
 
@@ -559,6 +586,7 @@ public class ComplaintService {
         User admin = userRepository.findByEmail(adminEmail)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
+        Long previousOfficialId = complaint.getAssignedOfficial() != null ? complaint.getAssignedOfficial().getId() : null;
         complaint.setDepartment(department);
         complaint.setAssignedOfficial(official);
         if (complaint.getStatus() == ComplaintStatus.SUBMITTED || complaint.getStatus() == ComplaintStatus.UNDER_REVIEW) {
@@ -579,8 +607,17 @@ public class ComplaintService {
                 complaint.getId());
         if (official != null) {
             notificationService.notify(official,
-                    "Complaint " + complaint.getComplaintNumber() + " has been assigned to you.",
+                    (complaint.getUrgencyStatus() == UrgencyStatus.PENDING
+                            ? "URGENT complaint " + complaint.getComplaintNumber() + " has been assigned to you."
+                            : "Complaint " + complaint.getComplaintNumber() + " has been assigned to you."),
                     complaint.getId());
+        }
+
+        // Urgent complaint still awaiting its decision: the new owner is alerted like an auto-assignment and gets a
+        // fresh set of reminders. Re-saving the same official changes nothing; a locked decision sends nothing extra.
+        boolean sameOfficial = official != null && official.getId().equals(previousOfficialId);
+        if (complaint.getUrgencyStatus() == UrgencyStatus.PENDING && !sameOfficial) {
+            urgentAlertService.onReassigned(complaint);
         }
 
         auditLogService.log(admin, "COMPLAINT_ASSIGNED", "Complaint", complaint.getId(), remarks);
@@ -601,6 +638,8 @@ public class ComplaintService {
                 throw new RuntimeException("You are not authorized to update this complaint");
             }
         }
+
+        urgencyService.assertPriorityChangeAllowed(complaint, priority);
 
         Priority old = complaint.getPriority();
         complaint.setPriority(priority);
@@ -776,6 +815,13 @@ public class ComplaintService {
                 .departmentName(c.getDepartment() != null ? c.getDepartment().getName() : null)
                 .assignedOfficialId(c.getAssignedOfficial() != null ? c.getAssignedOfficial().getId() : null)
                 .assignedOfficialName(c.getAssignedOfficial() != null ? c.getAssignedOfficial().getName() : null)
+                .urgencyStatus(c.getUrgencyStatus() != null ? c.getUrgencyStatus().name() : UrgencyStatus.NONE.name())
+                .wasInitiallyUrgent(c.isWasInitiallyUrgent())
+                .urgencyReason(c.getUrgencyReason())
+                .urgencyDecidedByName(c.getUrgencyDecidedBy() != null ? c.getUrgencyDecidedBy().getName() : null)
+                .urgencyDecidedAt(c.getUrgencyDecidedAt())
+                .urgencyDecisionNote(c.getUrgencyDecisionNote())
+                .urgencyOverridden(c.isUrgencyOverridden())
                 .createdAt(c.getCreatedAt())
                 .updatedAt(c.getUpdatedAt())
                 .resolvedAt(c.getResolvedAt())

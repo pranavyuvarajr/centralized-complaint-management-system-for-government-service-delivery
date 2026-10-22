@@ -23,22 +23,34 @@ public class AuthService {
     private final LoginRateLimiter loginRateLimiter;
     private final AuditLogService auditLogService;
 
+    /** Public self-registration: the mobile number is mandatory, whatever role the request names. */
     public AuthDto.AuthResponse register(AuthDto.RegisterRequest request) {
+        return register(request, false);
+    }
+
+    /**
+     * @param createdByAdmin true only for the admin "create user" endpoint. Then officials and admins may be created
+     *                       without a mobile number (they can add it in their profile); citizens always need one.
+     */
+    public AuthDto.AuthResponse register(AuthDto.RegisterRequest request, boolean createdByAdmin) {
         if (userRepository.existsByEmail(request.getEmail())) {
             throw new RuntimeException("Email already registered");
-        }
-
-        // Mobile number is mandatory for every account (citizen, official, admin).
-        String phone = PhoneUtil.requireValid(request.getPhone());
-        // ...and each number can belong to only one account.
-        if (userRepository.existsByPhone(phone)) {
-            throw new RuntimeException(PhoneUtil.DUPLICATE_MESSAGE);
         }
 
         Role role = Role.CITIZEN;
         if (request.getRole() != null) {
             try { role = Role.valueOf(request.getRole().toUpperCase()); }
             catch (IllegalArgumentException ignored) {}
+        }
+
+        // Mobile number: mandatory for citizens (and for any public registration); optional only for
+        // officials/admins created by an admin.
+        String phone = createdByAdmin
+                ? PhoneUtil.normalizeForRole(role, request.getPhone())
+                : PhoneUtil.requireValid(request.getPhone());
+        // Uniqueness applies to citizens only.
+        if (phone != null && PhoneUtil.mustBeUnique(role) && userRepository.existsByPhoneAndRole(phone, Role.CITIZEN)) {
+            throw new RuntimeException(PhoneUtil.DUPLICATE_MESSAGE);
         }
 
         User.UserBuilder builder = User.builder()

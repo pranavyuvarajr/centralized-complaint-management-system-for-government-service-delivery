@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE = 'https://152.67.3.122';
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
 const api = axios.create({
   baseURL: API_BASE + '/api',
@@ -32,6 +32,8 @@ api.interceptors.response.use(
 export const authAPI = {
   register: (data) => api.post('/auth/register', data),
   login: (data) => api.post('/auth/login', data),
+  // Public: confirms an alert email from the link in the verification mail.
+  verifyAlertEmail: (token) => api.post('/auth/verify-alert-email', { token }),
 };
 
 // --- Complaints ---
@@ -49,6 +51,11 @@ export const complaintAPI = {
     if (data.latitude != null) form.append('latitude', data.latitude);
     if (data.longitude != null) form.append('longitude', data.longitude);
     if (data.photo) form.append('photo', data.photo);
+    // Urgent flow: only sent when the citizen chose Urgent (the server ignores it otherwise).
+    if (data.urgent) {
+      form.append('urgent', 'true');
+      form.append('urgencyReason', data.urgencyReason || '');
+    }
     return api.post('/complaints', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
@@ -58,6 +65,8 @@ export const complaintAPI = {
   track: (complaintNumber) => api.get(`/complaints/track/${complaintNumber}`),
   updateStatus: (id, data) => api.put(`/complaints/${id}/status`, data),
   updatePriority: (id, priority) => api.patch(`/complaints/${id}/priority`, { priority }),
+  // decision: 'CONFIRM_URGENT' | 'MARK_NORMAL' (MARK_NORMAL needs a note of at least 10 characters)
+  decideUrgency: (id, decision, note) => api.post(`/complaints/${id}/urgency/decision`, { decision, note }),
   // The reason is required by the server. With a photo it is sent as multipart, otherwise as JSON.
   reopen: (id, reason, photo) => {
     if (!photo) return api.post(`/complaints/${id}/reopen`, { reason });
@@ -147,6 +156,10 @@ export const profileAPI = {
   get: () => api.get('/users/me'),
   update: (data) => api.patch('/users/me', data),
   changePassword: (data) => api.post('/users/me/password', data),
+  // Alert email (OFFICIAL / ADMIN)
+  setAlertEmail: (alertEmail) => api.put('/users/me/alert-email', { alertEmail }),
+  resendAlertEmail: () => api.post('/users/me/alert-email/resend'),
+  clearAlertEmail: () => api.delete('/users/me/alert-email'),
 };
 
 // --- Admin ---
@@ -163,6 +176,8 @@ export const adminAPI = {
   // Permanent delete; the admin must confirm with their own password.
   deleteComplaint: (id, adminPassword) => api.delete(`/admin/complaints/${id}`, { data: { adminPassword } }),
   updatePriority: (id, priority) => api.patch(`/admin/complaints/${id}/priority`, { priority }),
+  // Admin override of a locked urgency decision; the note is mandatory.
+  overrideUrgency: (id, decision, note) => api.patch(`/admin/complaints/${id}/urgency`, { decision, note }),
   getStats: () => api.get('/admin/stats'),
   getAuditLogs: (params) => api.get('/admin/audit-logs', { params }),
 };

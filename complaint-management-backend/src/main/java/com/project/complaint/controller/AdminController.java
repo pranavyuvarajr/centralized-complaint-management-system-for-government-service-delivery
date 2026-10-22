@@ -48,7 +48,8 @@ public class AdminController {
 
     @PostMapping("/users")
     public ResponseEntity<AuthDto.AuthResponse> createUser(@Valid @RequestBody AuthDto.RegisterRequest request) {
-        return ResponseEntity.ok(authService.register(request));
+        // Admin-created accounts: officials/admins may be created without a mobile number.
+        return ResponseEntity.ok(authService.register(request, true));
     }
 
     @PutMapping("/users/{id}")

@@ -8,7 +8,7 @@ import { phoneError } from '../utils/phone';
 // to have a number are remembered so page changes don't re-check.
 const confirmedUsers = new Set();
 
-export default function PhonePrompt() {
+export default function PhonePrompt({ force = false, onSaved, onCancel } = {}) {
   const { user, logout } = useAuth();
   const [profile, setProfile] = useState(null); // set only when this user has no phone on file
   const [phone, setPhone] = useState('');
@@ -16,17 +16,18 @@ export default function PhonePrompt() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!user || confirmedUsers.has(user.id)) return undefined;
+    // Only citizens must have a mobile number; officials and admins may add one later in their profile.
+    if (!user || user.role !== 'CITIZEN' || (!force && confirmedUsers.has(user.id))) return undefined;
     let cancelled = false;
     profileAPI.get()
       .then((res) => {
         if (cancelled) return;
-        if (res.data.phone && String(res.data.phone).trim()) confirmedUsers.add(user.id);
+        if (res.data.phone && String(res.data.phone).trim() && !force) confirmedUsers.add(user.id);
         else setProfile(res.data);
       })
       .catch(() => { /* if the check fails, don't block the user */ });
     return () => { cancelled = true; };
-  }, [user]);
+  }, [user, force]);
 
   if (!profile) return null;
 
@@ -43,6 +44,7 @@ export default function PhonePrompt() {
       await profileAPI.update({ name: profile.name, phone });
       confirmedUsers.add(user.id);
       setProfile(null);
+      if (onSaved) onSaved(phone);
     } catch (err) {
       setError(err.response?.data?.error || 'Could not save your mobile number. Please try again.');
     } finally {
@@ -66,7 +68,9 @@ export default function PhonePrompt() {
             value={phone} onChange={(e) => setPhone(e.target.value)} />
         </div>
         <div className="modal__actions">
-          <button type="button" className="btn btn--ghost" onClick={logout} disabled={saving}>Log out</button>
+          {force
+            ? <button type="button" className="btn btn--ghost" onClick={onCancel} disabled={saving}>Cancel</button>
+            : <button type="button" className="btn btn--ghost" onClick={logout} disabled={saving}>Log out</button>}
           <button type="submit" className="btn btn--primary" disabled={saving}>{saving ? 'Saving…' : 'Save & Continue'}</button>
         </div>
       </form>

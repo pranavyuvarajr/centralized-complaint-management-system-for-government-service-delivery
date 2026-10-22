@@ -19,3 +19,12 @@ export function phoneError(raw) {
   if (raw == null || String(raw).trim() === '') return 'A mobile number is required.';
   return normalizePhone(raw) ? '' : PHONE_ERROR;
 }
+
+/**
+ * Like phoneError, but an empty value is fine. Used for officials and admins, whose mobile number is
+ * optional (citizens must always give one). A number that IS entered must still be valid.
+ */
+export function phoneErrorOptional(raw) {
+  if (raw == null || String(raw).trim() === '') return '';
+  return normalizePhone(raw) ? '' : PHONE_ERROR;
+}

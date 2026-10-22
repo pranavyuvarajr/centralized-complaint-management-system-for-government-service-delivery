@@ -6,6 +6,7 @@ import com.project.complaint.entity.ComplaintHistory;
 import com.project.complaint.entity.ComplaintStatus;
 import com.project.complaint.entity.Department;
 import com.project.complaint.entity.Role;
+import com.project.complaint.entity.UrgencyStatus;
 import com.project.complaint.entity.User;
 import com.project.complaint.exception.ReassignmentRequiredException;
 import com.project.complaint.repository.ComplaintCommentRepository;
@@ -38,6 +39,7 @@ public class UserService {
     private final ComplaintHistoryRepository historyRepository;
     private final NotificationService notificationService;
     private final PasswordEncoder passwordEncoder;
+    private final UrgentAlertService urgentAlertService;
 
     /** Complaints in these states are finished; only the others need an owner when an official moves away. */
     private static final List<ComplaintStatus> FINAL_STATUSES =
@@ -71,15 +73,18 @@ public class UserService {
     }
 
     /**
-     * Mobile numbers must be unique across accounts. Only checked when the
+     * Mobile numbers must be unique among citizens (officials and admins may share or omit them). Only checked when the
      * number is actually changing, so an existing user who keeps their own
      * number (even if an older duplicate exists in legacy data) can still save
      * other edits.
      */
     private void ensurePhoneAvailable(User user, String normalizedPhone) {
+        // No number (allowed for officials/admins) or a role that may share numbers: nothing to check.
+        if (normalizedPhone == null || !PhoneUtil.mustBeUnique(user.getRole())) return;
         String current = PhoneUtil.normalizeOrNull(user.getPhone());
         if (normalizedPhone.equals(current)) return;
-        if (userRepository.existsByPhoneAndIdNot(normalizedPhone, user.getId())) {
+        // Uniqueness is among citizens only.
+        if (userRepository.existsByPhoneAndRoleAndIdNot(normalizedPhone, Role.CITIZEN, user.getId())) {
             throw new IllegalStateException(PhoneUtil.DUPLICATE_MESSAGE);
         }
     }
@@ -110,7 +115,7 @@ public class UserService {
         if (name.isEmpty()) {
             throw new IllegalStateException("Name is required.");
         }
-        String phone = PhoneUtil.requireValid(request.getPhone());
+        String phone = PhoneUtil.normalizeForRole(user.getRole(), request.getPhone());
         ensurePhoneAvailable(user, phone);
 
         Department oldDept = user.getDepartment();
@@ -197,9 +202,15 @@ public class UserService {
                     .remarks(remarks)
                     .updatedBy(admin.getName())
                     .build());
+            boolean pendingUrgent = c.getUrgencyStatus() == UrgencyStatus.PENDING;
             if (target != null) {
                 notificationService.notify(target,
-                        "Complaint " + c.getComplaintNumber() + " has been assigned to you.", c.getId());
+                        (pendingUrgent ? "URGENT complaint " : "Complaint ") + c.getComplaintNumber()
+                                + " has been assigned to you.", c.getId());
+            }
+            if (pendingUrgent) {
+                // Fresh reminders for the new owner, or admin alerts if the complaint is left unassigned.
+                urgentAlertService.onReassigned(c);
             }
         }
         complaintRepository.saveAll(active);
@@ -288,6 +299,11 @@ public class UserService {
 
             for (Complaint c : assigned) {
                 c.setAssignedOfficial(target);
+                if (c.getUrgencyStatus() == UrgencyStatus.PENDING) {
+                    notificationService.notify(target,
+                            "URGENT complaint " + c.getComplaintNumber() + " has been assigned to you.", c.getId());
+                    urgentAlertService.onReassigned(c);
+                }
             }
             complaintRepository.saveAll(assigned);
         }
@@ -303,14 +319,19 @@ public class UserService {
     public UserDto.Response getProfile(String email) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("User not found"));
-        return mapToResponse(user);
+        UserDto.Response response = mapToResponse(user);
+        if (user.getRole() == Role.OFFICIAL || user.getRole() == Role.ADMIN) {
+            response.setAlertEmail(user.getAlertEmail());
+            response.setAlertEmailVerified(user.isAlertEmailVerified());
+        }
+        return response;
     }
 
     @Transactional
     public UserDto.Response updateProfile(String email, UserDto.UpdateProfileRequest request) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("User not found"));
-        String phone = PhoneUtil.requireValid(request.getPhone());
+        String phone = PhoneUtil.normalizeForRole(user.getRole(), request.getPhone());
         ensurePhoneAvailable(user, phone);
         user.setName(request.getName());
         user.setPhone(phone);

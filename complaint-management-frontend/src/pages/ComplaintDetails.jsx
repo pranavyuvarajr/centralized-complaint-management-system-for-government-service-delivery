@@ -6,6 +6,8 @@ import {
 import { useAuth } from '../context/AuthContext';
 import StatusBadge from '../components/StatusBadge';
 import PriorityBadge from '../components/PriorityBadge';
+import UrgencyBadge from '../components/UrgencyBadge';
+import UrgencyPanel from '../components/UrgencyPanel';
 import StatusTimeline from '../components/StatusTimeline';
 import DeleteComplaintModal from '../components/DeleteComplaintModal';
 import ReopenModal from '../components/ReopenModal';
@@ -304,10 +306,13 @@ export default function ComplaintDetails() {
             <p className="subtitle">{complaint.complaintNumber}</p>
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
+            <UrgencyBadge urgencyStatus={complaint.urgencyStatus} />
             <PriorityBadge priority={complaint.priority} />
             <StatusBadge status={complaint.status} />
           </div>
         </div>
+
+        <UrgencyPanel complaint={complaint} onChanged={load} />
 
         <div className="form-row" style={{ marginBottom: 16, fontSize: '0.85rem' }}>
           <div><span className="card__label">Category</span><br />{complaint.category}</div>
@@ -386,14 +391,21 @@ export default function ComplaintDetails() {
 
           <div style={{ marginBottom: 20 }}>
             <span className="card__label">Priority</span>
-            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-              {['LOW', 'MEDIUM', 'HIGH', 'URGENT'].map((p) => (
-                <button key={p} type="button"
-                  className={`chip ${complaint.priority === p ? 'active' : ''}`}
-                  disabled={actionLoading}
-                  onClick={() => handlePriority(p)}>{p}</button>
-              ))}
-            </div>
+            {/* URGENT can no longer be set by hand; it only comes from the citizen's urgent flow or the admin override. */}
+            {complaint.urgencyStatus && complaint.urgencyStatus !== 'NONE' ? (
+              <p className="hint" style={{ marginTop: 8 }}>
+                Priority is controlled by the urgency verification above and cannot be changed manually.
+              </p>
+            ) : (
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                {['LOW', 'MEDIUM', 'HIGH'].map((p) => (
+                  <button key={p} type="button"
+                    className={`chip ${complaint.priority === p ? 'active' : ''}`}
+                    disabled={actionLoading}
+                    onClick={() => handlePriority(p)}>{p}</button>
+                ))}
+              </div>
+            )}
           </div>
 
           {nextStatuses.length > 0 ? (

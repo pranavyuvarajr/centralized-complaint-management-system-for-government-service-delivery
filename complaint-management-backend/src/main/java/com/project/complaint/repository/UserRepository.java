@@ -11,6 +11,10 @@ public interface UserRepository extends JpaRepository<User, Long> {
     boolean existsByEmail(String email);
     boolean existsByPhone(String phone);
     boolean existsByPhoneAndIdNot(String phone, Long id);
+    // Uniqueness applies to citizens only (officials and admins may share or omit numbers).
+    boolean existsByPhoneAndRole(String phone, Role role);
+    boolean existsByPhoneAndRoleAndIdNot(String phone, Role role, Long id);
     List<User> findByRole(Role role);
     List<User> findByDepartmentId(Long departmentId);
+    Optional<User> findByAlertEmailTokenHash(String alertEmailTokenHash);
 }

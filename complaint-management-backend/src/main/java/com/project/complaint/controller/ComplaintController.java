@@ -39,6 +39,8 @@ public class ComplaintController {
             @RequestParam String category,
             @RequestParam(required = false) Double latitude,
             @RequestParam(required = false) Double longitude,
+            @RequestParam(required = false, defaultValue = "false") boolean urgent,
+            @RequestParam(required = false) String urgencyReason,
             @RequestParam(value = "photo", required = false) MultipartFile photo) {
         ComplaintDto.CreateRequest request = new ComplaintDto.CreateRequest();
         request.setTitle(title);
@@ -46,6 +48,8 @@ public class ComplaintController {
         request.setCategory(category);
         request.setLatitude(latitude);
         request.setLongitude(longitude);
+        request.setUrgent(urgent);
+        request.setUrgencyReason(urgencyReason);
         return ResponseEntity.ok(complaintService.createComplaint(auth.getName(), request, photo));
     }
 
